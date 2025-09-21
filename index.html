@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Interactive Visualizers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Landing page for research/course interactive visualizers.">
+  <style>
+    :root{
+      --bg:#ffffff; --fg:#111; --muted:#666; --card:#fafafa; --border:#e6e6e6;
+      --link:#0b5fff; --accent:#7b2a2a;
+    }
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    header{
+      max-width:1000px; margin:32px auto 12px; padding:0 16px;
+    }
+    h1{ margin:0 0 6px; font-size:28px; }
+    .sub{ color:var(--muted); margin:0 0 18px; }
+    .toolbar{ display:flex; gap:12px; align-items:center; margin:8px 0 4px; }
+    .search{
+      flex:1; position:relative;
+    }
+    .search input{
+      width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px;
+      font:15px system-ui, sans-serif; outline:none;
+    }
+    .search input:focus{ border-color:#c0c0c0; }
+    main{
+      max-width:1000px; margin:0 auto 60px; padding:0 16px;
+    }
+    .grid{
+      display:grid; gap:16px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    @media (max-width: 920px){
+      .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 600px){
+      .grid{ grid-template-columns: 1fr; }
+    }
+    .card{
+      background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px;
+      display:flex; flex-direction:column; gap:10px;
+      transition: box-shadow .15s ease, transform .05s ease;
+    }
+    .card:hover{ box-shadow:0 6px 24px rgba(0,0,0,0.06); transform: translateY(-1px); }
+    .card h3{ margin:0; font-size:18px; }
+    .card p{ margin:0; color:var(--muted); }
+    .tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
+    .tag{
+      font-size:12px; color:#444; background:#f2f2f2; border:1px solid #e6e6e6; border-radius:999px;
+      padding:2px 8px;
+    }
+    .actions{ margin-top:auto; display:flex; gap:10px; }
+    .btn{
+      appearance:none; border:1px solid var(--border); background:#fff; color:var(--fg);
+      padding:8px 12px; border-radius:10px; cursor:pointer; text-decoration:none; font-weight:600;
+    }
+    .btn.primary{ background:var(--fg); color:#fff; border-color:var(--fg); }
+    footer{
+      max-width:1000px; margin:18px auto 40px; padding:0 16px; color:var(--muted); font-size:14px;
+    }
+    .empty{ color:var(--muted); padding:18px; border:1px dashed var(--border); border-radius:12px; text-align:center; }
+    .help{
+      background:#fff; border:1px solid var(--border); border-radius:12px; padding:10px 12px; font-size:13px; color:#444;
+      margin-top:8px;
+    }
+    code{ background:#f6f8fa; border:1px solid #eaecef; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Interactive Visualizers</h1>
+    <p class="sub">Lightweight, browser‑based demos for solid‑state / quantum materials concepts. Click any card to open a tool.</p>
+    <div class="toolbar">
+      <div class="search">
+        <input id="q" type="search" placeholder="Filter by title, tags, or keywords…" aria-label="Filter visualizers">
+      </div>
+    </div>
+    <div class="help">
+      <strong>Adding new pages:</strong> drop each HTML file into this repository and add an entry to the list below (see the small <code>visualizers</code> array in the page source).
+    </div>
+  </header>
+
+  <main>
+    <div id="grid" class="grid" role="list"></div>
+    <div id="empty" class="empty" style="display:none">No matches. Try a different search.</div>
+  </main>
+
+  <footer>
+    Tip: These pages load Plotly/MathJax via CDNs inside each visualizer. If you ever need offline reliability, switch those pages to local files in <code>assets/js/</code> and keep the same HTML.
+  </footer>
+
+  <script>
+    // --- Catalog of visualizers (edit this list as you add more pages) ---
+    const visualizers = [
+      {
+        title: "3D NFE Fermi Surface",
+        href: "./NFE_Fermi_Surface_Visualizer.html",
+        tags: ["bands", "fermi surface", "nearly-free electron", "3D"],
+        blurb: "Interactive nearly‑free‑electron band structure (Γ–X–M–Γ–R) with 3D Fermi surface isosurface."
+      }
+      // Add more entries like:
+      // ,{ title: "Band Structure: Tight Binding (2D square)",
+      //    href: "./TB_2D_Square_Visualizer.html",
+      //    tags: ["tight binding", "2D", "bands"],
+      //    blurb: "Visualize E(k) and Fermi contours for a 2D square‑lattice tight‑binding model."}
+    ];
+
+    // --- Render helpers ---
+    const grid = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+    const q = document.getElementById('q');
+
+    function render(list){
+      grid.innerHTML = "";
+      if (!list.length){
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+      for (const v of list){
+        const card = document.createElement('article');
+        card.className = "card";
+        card.setAttribute("role", "listitem");
+        card.innerHTML = `
+          <h3>${escapeHtml(v.title)}</h3>
+          <p>${escapeHtml(v.blurb || "")}</p>
+          ${renderTags(v.tags || [])}
+          <div class="actions">
+            <a class="btn primary" href="${v.href}">Open</a>
+            <a class="btn" href="${v.href}" target="_blank" rel="noopener">Open in new tab</a>
+          </div>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    function renderTags(tags){
+      if (!tags.length) return "";
+      return '<div class="tags">' + tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("") + '</div>';
+    }
+
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",""":"&quot;","'":"&#039;"
+      })[c]);
+    }
+
+    // --- Search/filter ---
+    function normalize(s){ return s.toLowerCase(); }
+    function match(v, query){
+      if (!query) return true;
+      const q = normalize(query);
+      const hay = [
+        v.title || "",
+        (v.blurb || ""),
+        (v.tags || []).join(" ")
+      ].join(" ").toLowerCase();
+      return hay.includes(q);
+    }
+
+    q.addEventListener('input', () => {
+      const term = q.value.trim();
+      const filtered = visualizers.filter(v => match(v, term));
+      render(filtered);
+    });
+
+    // Initial render
+    render(visualizers);
+  </script>
+</body>
+</html>
