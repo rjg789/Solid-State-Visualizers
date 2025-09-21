@@ -365,12 +365,12 @@ async function main(){
   const dom = domainsForOrientation();
 const baseLayout = {
   // LEFT subplot
-  xaxis:  { ...axisFrame('x'), ...dom.xaxis,  range:[-16, 16], anchor:'y' },
-  yaxis:  { ...axisFrame('scaled layout'), ...dom.yaxis,        anchor:'x' },
+  xaxis:  { ...axisFrame('x (Å)'), ...dom.xaxis,  range:[-16, 16], anchor:'y' },
+  yaxis:  { ...axisFrame('scaled layout (arb.)'), ...dom.yaxis,        anchor:'x' },
 
   // RIGHT subplot (IMPORTANT: anchor y2<->x2 and draw ticks/line)
-  xaxis2: { ...axisFrame('k'), ...dom.xaxis2, range:[-Math.PI/a0, Math.PI/a0], anchor:'y2' },
-  yaxis2: { ...axisFrame('Energy'), ...dom.yaxis2,
+  xaxis2: { ...axisFrame('k (1/Å)'), ...dom.xaxis2, range:[-Math.PI/a0, Math.PI/a0], anchor:'y2' },
+  yaxis2: { ...axisFrame('Energy (eV)'), ...dom.yaxis2,
             range:[EminGlobal, EmaxGlobal],
             anchor:'x2', side:'right',
             showticklabels:true, ticks:'outside', showline:true, mirror:'all' },
@@ -485,3 +485,4 @@ window.addEventListener('load', main);
 </script>
 </body>
 </html>
+
