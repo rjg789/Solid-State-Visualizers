@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>3D Fermi Surface — NFE (v2.10.8)</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root { --fg:#111; --muted:#555; --accent:#7b2a2a; --card:#fafafa; --border:#e8e8e8; --warn:#fff3cd; --warnb:#ffeeba; }
+    html,body{ height:100%; }
+    body { margin:0; background:#fff; color:var(--fg); font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .wrap { display:grid; grid-template-columns: 1fr 340px; gap:14px; padding:14px; box-sizing:border-box; min-height:100vh; }
+    .panel { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    .plot { height:65vh; min-height:340px; }
+    h1 { font-size:18px; margin:0 0 6px; }
+    h2 { font-size:16px; margin:0 0 6px; }
+    .muted { color:var(--muted); margin:4px 0 12px; }
+    .spinner { display:none; font-size:12px; color:#777; }
+    .err { display:none; background:var(--warn); border-bottom:1px solid var(--warnb); padding:8px 12px; color:#5c3c00; }
+    .field { margin: 12px 0; }
+    .field-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .field-head .lbl { font-weight:600; }
+    .field-head .val { color:var(--accent); font-variant-numeric: tabular-nums; min-width:6ch; text-align:right; }
+    .field input[type=range], .field select { width:100%; margin-top:8px; }
+    .inline { display:flex; align-items:center; gap:10px; }
+    @media (max-width: 900px){
+      .wrap { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .plot { height:56vh; }
+    }
+  </style>
+
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']], processEscapes: true },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+</head>
+<body>
+  <div id="err" class="err"></div>
+  <div class="wrap">
+    <div class="grid">
+      <div class="panel plot"><div id="bandCut"></div></div>
+      <div class="panel plot"><div id="fermi3d"></div></div>
+    </div>
+
+    <div class="panel" id="controlsPanel">
+      <h1>3D Fermi Surface — Nearly‑Free‑Electron</h1>
+      <div class="field">
+        <div class="field-head"><span class="lbl">Potential strength</span><span class="val" id="vgval">0.60</span></div>
+        <input id="vg" type="range" min="0.00" max="3.0" step="0.01" value="0.60">
+      </div>
+
+      <div class="field">
+        <div class="field-head"><span class="lbl">Fermi level</span><span class="val" id="efval">4.00</span></div>
+        <input id="ef" type="range" min="0.0" max="30.0" step="0.01" value="4.00">
+      </div>
+
+      <div class="field">
+        <div class="field-head"><span class="lbl">Resolution</span><span class="val" id="nval">34</span></div>
+        <input id="n" type="range" min="14" max="64" step="1" value="34">
+        <div class="inline small"><input id="capz" type="checkbox" checked><label for="capz">Hide FS caps</label><span class="spinner" id="spin">computing…</span></div>
+      </div>
+    </div>
+
+    
+    <div class="panel">
+      <h2>Description</h2>
+      <p>
+      his interactive visualizer implements the <em>3D nearly‑free‑electron (NFE)</em> model for a simple cubic crystal with lattice spacing \(a=1\). We evaluate the bands in a <strong>19‑vector plane‑wave basis</strong> (0, six faces, and twelve edge vectors \(\mathbf{G}_i \pm \mathbf{G}_j\)).
+      The <em>potential</em> includes only the six <em>face</em> Fourier components; the extra basis vectors capture scattering pathways near zone edges/corners,
+      ensuring accurate gaps and Fermi‑surface topology without adding higher‑harmonic potential terms.
+    
+      </p>
+
+      <h2>Parameters</h2>
+      <ul>
+        <li><strong>\(|V_G|\)</strong> — Strength of the lattice Fourier component that couples states differing by a face vector. Increasing \(|V_G|\) opens larger gaps at X, M, and R and reshapes the Fermi surface near those planes.</li>
+        <li><strong>\(E_F\)</strong> (Fermi level) — Energy at which the Fermi surface is drawn: the surface where \(E_n(\mathbf{k}) = E_F\) for the lowest three bands \(n=1,2,3\).</li>
+        <li><strong>Grid N</strong> — Resolution of the 3D \(k\)-grid used to extract the Fermi surface. Higher values look smoother but take longer to compute.</li>
+        <li><strong>Hide FS caps</strong> — Toggles the end caps of the isosurface slices along the plot axes for a cleaner appearance.</li>
+      </ul>
+
+      <h2>How to use</h2>
+      <ol>
+        <li><strong>Band Structure (left):</strong> Shows the lowest three bands along the standard path \(\Gamma \rightarrow X \rightarrow M \rightarrow \Gamma \rightarrow R\).
+            The dashed line marks your current \(E_F\). Adjust \(|V_G|\) to see gap openings at symmetry points and band reconstructions.</li>
+        <li><strong>Fermi Surface (right):</strong> Drag to rotate and pan; use mouse wheel to zoom. On touch devices, pinch‑to‑zoom works after tapping the <em>Zoom</em> tool in the Plotly toolbar.</li>
+        <li><strong>Performance tip:</strong> Increase <em>Grid N</em> only after you’ve settled on interesting values of \(|V_G|\) and \(E_F\). The plot will recompute once when you release the slider.</li>
+      </ol>
+
+      <h2>Things to try</h2>
+      <ul>
+        <li><strong>Empty lattice limit:</strong> Set \(|V_G|=0\). Bands become free‑electron parabolas and the Fermi surface is a sphere (folded into the BZ).</li>
+        <li><strong>Gap formation:</strong> Increase \(|V_G|\) to see avoided crossings and gaps at X and M along the path, and neck formation/closure on the Fermi surface.</li>
+        <li><strong>Second band surfaces:</strong> Raise \(E_F\) well into the second band to reveal multiple sheets and pockets; then rotate the view to compare features related by cubic symmetry.</li>
+        <li><strong>Resolution sweep:</strong> Once you find an interesting topology (e.g., necks at R), raise <em>Grid N</em> (e.g., 34–48) to make the surfaces crisp for screenshots.</li>
+      </ul>
+    </div>
+
+  </div>
+
+<script>
+(function(){
+  const errDiv = document.getElementById('err');
+  window.addEventListener('error', function(e){
+    errDiv.style.display='block';
+    errDiv.textContent = 'Script error: ' + (e.message || e);
+  });
+
+  // --- Worker (adjacency-based sparse fill) ---
+  const workerCode = String.raw`
+  let currentSeq = 0;
+  self.onmessage = (e)=>{
+    const {seq, task, VG, N, nbands, path} = e.data;
+    const pi = Math.PI;
+    const G = 2*pi;
+    const EPS = 1e-9;
+    const tol_edge = 0.25, tol_corner = 0.20;
+    const m = 1.0;
+
+    const B19 = [[0,0,0],
+      [ G,0,0],[-G,0,0],[0, G,0],[0,-G,0],[0,0, G],[0,0,-G],
+      [ G, G,0],[-G,-G,0],[ G,-G,0],[-G, G,0],
+      [ G,0, G],[-G,0,-G],[ G,0,-G],[-G,0, G],
+      [0, G, G],[0,-G,-G],[0, G,-G],[0,-G, G]
+    ];
+    const B7 = [[0,0,0],[ G,0,0],[-G,0,0],[0, G,0],[0,-G,0],[0,0, G],[0,0,-G]];
+
+    function key(v){ return v[0]+','+v[1]+','+v[2]; }
+
+    function buildAdjPairs(B){
+      const n=B.length, pairs=[];
+      const map=new Map();
+      for(let i=0;i<n;i++) map.set(key(B[i]), i);
+      const faces = [[ G,0,0],[-G,0,0],[0, G,0],[0,-G,0],[0,0, G],[0,0,-G]];
+      for(let j=0;j<n;j++){
+        const v=B[j];
+        for(let f=0; f<faces.length; f++){
+          const u0 = v[0]+faces[f][0];
+          const u1 = v[1]+faces[f][1];
+          const u2 = v[2]+faces[f][2];
+          const idx = map.get(u0+','+u1+','+u2);
+          if(idx!==undefined){
+            const i = idx, k=j;
+            if(i>k) pairs.push([k,i]);
+          }
+        }
+      }
+      return {pairs:pairs, map:map};
+    }
+    const adj19 = buildAdjPairs(B19);
+    const adj7  = buildAdjPairs(B7);
+
+    function nearFaceVal(a){ return pi - Math.abs(a); }
+
+    function chooseBasisAndPairs(kx,ky,kz){
+      const dx = nearFaceVal(kx), dy = nearFaceVal(ky), dz = nearFaceVal(kz);
+      const nearX = dx < tol_edge, nearY = dy < tol_edge, nearZ = dz < tol_edge;
+      const corner = (dx < tol_corner) && (dy < tol_corner) && (dz < tol_corner);
+      if(corner) return {B:B19, pairs:adj19.pairs};
+
+      const edges = (nearX && nearY) || (nearX && nearZ) || (nearY && nearZ);
+      if(edges){
+        const list = B7.slice();
+        if(nearX && nearY){ list.push([ G, G,0],[-G,-G,0],[ G,-G,0],[-G, G,0]); }
+        else if(nearX && nearZ){ list.push([ G,0, G],[-G,0,-G],[ G,0,-G],[-G,0, G]); }
+        else { list.push([0, G, G],[0,-G,-G],[0, G,-G],[0,-G, G]); }
+
+        const mapLocal = new Map();
+        for(let i=0;i<list.length;i++) mapLocal.set(key(list[i]), i);
+
+        const pairsLocal = [];
+        for(let t=0;t<adj19.pairs.length;t++){
+          const i19 = adj19.pairs[t][0], j19 = adj19.pairs[t][1];
+          const vi = B19[i19], vj = B19[j19];
+          const li = mapLocal.get(key(vi));
+          const lj = mapLocal.get(key(vj));
+          if(li!==undefined && lj!==undefined) pairsLocal.push([li, lj]);
+        }
+        return {B:list, pairs:pairsLocal};
+      }
+      return {B:B7, pairs:adj7.pairs};
+    }
+
+    function buildH(B, pairs, kx,ky,kz, VG){
+      const n = B.length;
+      const H = Array.from({length:n}, ()=> new Float64Array(n));
+      for(let i=0;i<n;i++){
+        const kGi0 = kx + B[i][0];
+        const kGi1 = ky + B[i][1];
+        const kGi2 = kz + B[i][2];
+        H[i][i] = (kGi0*kGi0 + kGi1*kGi1 + kGi2*kGi2)/2; // m=1
+      }
+      for(let p=0;p<pairs.length;p++){
+        const i=pairs[p][0], j=pairs[p][1];
+        H[i][j]=VG; H[j][i]=VG;
+      }
+      return H;
+    }
+
+    function jacobiEigenSym(A, tol=1e-12, maxSweeps=40){
+      const n = A.length;
+      function offdiagNorm(){
+        let s=0;
+        for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) s += A[i][j]*A[i][j];
+        return Math.sqrt(s);
+      }
+      let sweep=0;
+      while(sweep++ < maxSweeps && offdiagNorm() > tol){
+        for(let p=0;p<n-1;p++){
+          for(let q=p+1;q<n;q++){
+            const app=A[p][p], aqq=A[q][q], apq=A[p][q];
+            if(Math.abs(apq) < tol) continue;
+            const tau = (aqq - app)/(2*apq);
+            const t = Math.sign(tau)/(Math.abs(tau) + Math.sqrt(1 + tau*tau));
+            const c = 1/Math.sqrt(1 + t*t);
+            const s = t*c;
+            for(let i=0;i<n;i++){
+              if(i!==p && i!==q){
+                const aip=A[i][p], aiq=A[i][q];
+                const nip = c*aip - s*aiq;
+                const niq = s*aip + c*aiq;
+                A[i][p]=nip; A[p][i]=nip;
+                A[i][q]=niq; A[q][i]=niq;
+              }
+            }
+            const app2 = c*c*app - 2*s*c*apq + s*s*aqq;
+            const aqq2 = s*s*app + 2*s*c*apq + c*c*aqq;
+            A[p][p]=app2; A[q][q]=aqq2;
+            A[p][q]=0; A[q][p]=0;
+          }
+        }
+      }
+      const evals=new Float64Array(n);
+      for(let i=0;i<n;i++) evals[i]=A[i][i];
+      const idx=Array.from({length:n},(_,i)=>i).sort((i,j)=>evals[i]-evals[j]);
+      const sorted=new Float64Array(n);
+      for(let r=0;r<n;r++) sorted[r]=evals[idx[r]];
+      return sorted;
+    }
+
+    if(seq < currentSeq) return;
+    if(task==='grid'){
+      const nb = nbands;
+      const out = Array.from({length: nb}, ()=> new Float32Array(N*N*N));
+      const kmin=-Math.PI, kmax=Math.PI;
+      let t=0;
+      for(let i=0;i<N;i++){
+        const kx = kmin + (kmax-kmin)*(i/(N-1));
+        for(let j=0;j<N;j++){
+          const ky = kmin + (kmax-kmin)*(j/(N-1));
+          for(let k=0;k<N;k++){
+            const kz = kmin + (kmax-kmin)*(k/(N-1));
+            const pick = chooseBasisAndPairs(kx,ky,kz);
+            const H = buildH(pick.B, pick.pairs, kx,ky,kz, VG);
+            const E = jacobiEigenSym(H);
+            for(let b=0;b<nb;b++){ out[b][t] = E[b]; }
+            t++;
+          }
+        }
+      }
+      const transfers = []; for(let b=0;b<nb;b++) transfers.push(out[b].buffer);
+      self.postMessage({seq:seq, task:'grid_done', val: out, N: N}, transfers);
+      if(seq > currentSeq) currentSeq = seq;
+    } else if(task==='path'){
+      const nb = nbands;
+      const out = Array.from({length: nb}, ()=> new Float32Array(path.length));
+      for(let i=0;i<path.length;i++){
+        const kx=path[i][0], ky=path[i][1], kz=path[i][2];
+        const H = buildH(B19, buildAdjPairs(B19).pairs, kx,ky,kz, VG);
+        const E = jacobiEigenSym(H);
+        for(let b=0;b<nb;b++){ out[b][i]=E[b]; }
+      }
+      const transfers = []; for(let b=0;b<nb;b++) transfers.push(out[b].buffer);
+      self.postMessage({seq:seq, task:'path_done', bands: out}, transfers);
+      if(seq > currentSeq) currentSeq = seq;
+    }
+  };
+  `;
+
+  const workerBlob = new Blob([workerCode], {type:'application/javascript'});
+  const workerURL = URL.createObjectURL(workerBlob);
+  const worker = new Worker(workerURL);
+
+  // --- UI & Plot state ---
+  const vgEl = document.getElementById('vg');
+  const efEl = document.getElementById('ef');
+  const nEl  = document.getElementById('n');
+  const capzEl = document.getElementById('capz');
+  const vgval = document.getElementById('vgval');
+  const efval = document.getElementById('efval');
+  const nval  = document.getElementById('nval');
+  const spin  = document.getElementById('spin');
+
+  const bandColors = ['#8b0000', '#d48100', '#7a5bd1']; // bands 1..3
+  let lastCamera = null;
+  let cameraBound = false;
+  let lastBands = null;
+  let lastGrid = null;
+  let lastGridN = null;
+  let seq = 0;
+
+  const FS_UIREV = 'FS_LOCK';   // keep constant across updates
+  let fsInitN = null;           // current grid resolution in the figure
+
+
+  function linspace(a,b,n){
+    const out = new Array(n);
+    const step = (b-a)/(n-1);
+    for(let i=0;i<n;i++) out[i]=a+i*step;
+    return out;
+  }
+
+  // Γ–X–M–Γ–R path
+  const STEPS = 121;
+  function buildKPath(steps){
+    const pi=Math.PI;
+    const Gm=[0,0,0], X=[pi,0,0], M=[pi,pi,0], R=[pi,pi,pi];
+    function seg(A,B){
+      const arr=[]; for(let i=0;i<steps;i++){ const t=i/(steps-1);
+        arr.push([ A[0]*(1-t)+B[0]*t, A[1]*(1-t)+B[1]*t, A[2]*(1-t)+B[2]*t ]);
+      } return arr;
+    }
+    return [].concat(seg(Gm,X), seg(X,M), seg(M,Gm), seg(Gm,R));
+  }
+
+  function updateLabelsOnly(){
+    vgval.textContent = parseFloat(vgEl.value).toFixed(2);
+    efval.textContent = parseFloat(efEl.value).toFixed(2);
+    nval.textContent  = parseInt(nEl.value, 10);
+  }
+
+  function drawBandPath(bands){
+    const EF = parseFloat(efEl.value);
+    const L = STEPS*4;
+    const sAxis = linspace(0, L-1, L);
+    const tickvals = [0, STEPS-1, 2*STEPS-1, 3*STEPS-1, 4*STEPS-1];
+    const ticktext = ['Γ','X','M','Γ','R'];
+
+    const traces = [];
+    for(var b=0;b<bands.length;b++){
+      traces.push({x:sAxis, y:Array.from(bands[b]), mode:'lines', name:'band ' + (b+1), line:{color:bandColors[b%bandColors.length]}});
+    }
+    traces.push({x:[0, L-1], y:[EF,EF], mode:'lines', name:'E_F', line:{dash:'dash', color:'#333'}});
+
+    Plotly.react('bandCut', traces, {
+      title: {text:'Band Structure', x:0.02, xanchor:'left'},
+      margin:{l:55,r:10,t:35,b:45},
+      xaxis:{title:'k-path (Γ-X-M-Γ-R)', tickmode:'array', tickvals:tickvals, ticktext:ticktext},
+      yaxis:{title:'E(k) (scaled)'},
+      legend:{orientation:'h', y:-0.18},
+      uirevision: 'BANDS'
+    }, {responsive:true, displaylogo:false});
+  }
+
+function bindCameraOnce(gd){
+  if (cameraBound) return;
+  cameraBound = true;
+  gd.addEventListener('plotly_relayout', (ev) => {
+    if (ev && ev['scene.camera']) lastCamera = ev['scene.camera'];
+    if (gd._fullLayout?.scene?.camera) lastCamera = gd._fullLayout.scene.camera;
+  });
+}
+
+function updateFsIso(EF, hideCaps){
+  const gd = document.getElementById('fermi3d');
+  if (!gd || !gd.data) return;
+  const n = gd.data.length;
+  const idx = Array.from({length:n}, (_,i)=>i);
+
+  // Single restyle call (less overhead)
+  Plotly.restyle(gd, {
+    isomin: Array(n).fill(EF),
+    isomax: Array(n).fill(EF),
+    'caps.x': Array(n).fill(!hideCaps),
+    'caps.y': Array(n).fill(!hideCaps),
+    'caps.z': Array(n).fill(!hideCaps)
+  }, idx);
+}
+
+
+
+ function ensureFsInit(valArrays, N) {
+  if (!valArrays || !Array.isArray(valArrays) || !N) return;
+
+  const gd = document.getElementById('fermi3d');
+
+  // Pull the live camera (fallback to saved)
+  let cam = gd?._fullLayout?.scene?.camera || lastCamera || null;
+
+  // Build coordinates for this N
+  const total = N*N*N, kmin = -Math.PI, kmax = Math.PI;
+  const xs = new Float32Array(total), ys = new Float32Array(total), zs = new Float32Array(total);
+  let idx = 0;
+  for (let i=0;i<N;i++){
+    const kx = kmin + (kmax-kmin)*(i/(N-1));
+    for (let j=0;j<N;j++){
+      const ky = kmin + (kmax-kmin)*(j/(N-1));
+      for (let k=0;k<N;k++){
+        const kz = kmin + (kmax-kmin)*(k/(N-1));
+        xs[idx]=kx; ys[idx]=ky; zs[idx]=kz; idx++;
+      }
+    }
+  }
+
+  const EF = parseFloat(efEl.value);
+  const hideCaps = capzEl.checked;
+  const colors = ['#8b0000','#d48100','#7a5bd1'];
+
+  const traces = valArrays.map((arr, b) => ({
+    type:'isosurface',
+    x: xs, y: ys, z: zs,
+    value: arr,
+    isomin: EF, isomax: EF,
+    surface: {show:true, count:1},
+    surfacecount: 1,
+    caps: {x:!hideCaps, y:!hideCaps, z:!hideCaps},
+    showscale: false,
+    opacity: 1.0,
+    name: 'FS band ' + (b+1),
+    colorscale: [[0, colors[b%3]],[1, colors[b%3]]]
+  }));
+
+  const layout = {
+    title: {text:'Fermi Surface', x:0.02, xanchor:'left'},
+    scene: {
+      xaxis:{title:'k<sub>x</sub> (1/a)'},
+      yaxis:{title:'k<sub>y</sub> (1/a)'},
+      zaxis:{title:'k<sub>z</sub> (1/a)'},
+      aspectmode:'cube',
+      uirevision: FS_UIREV
+    },
+    margin:{l:0,r:0,t:35,b:0}
+  };
+  if (cam) layout.scene.camera = cam;
+
+  const config = { responsive:true, displaylogo:false, scrollZoom:true };
+
+  Plotly.react(gd, traces, layout, config).then(() => {
+    bindCameraOnce(gd);
+    if (cam) { lastCamera = cam; Plotly.relayout(gd, {'scene.camera': cam}); }
+    fsInitN = N;
+  });
+}
+
+// Update only the isosurface values / EF / caps without rebuilding the figure
+function updateFsInPlace(valArrays, N) {
+  const gd = document.getElementById('fermi3d');
+  if (!gd || !gd.data) return;
+
+  // Guard against length mismatches (prevents “reading 'length'” errors)
+  const expected = N*N*N;
+  const ok = Array.isArray(valArrays) && valArrays.every(a => a && a.length === expected);
+  if (!ok) return;
+
+  const EF = parseFloat(efEl.value);
+  const hideCaps = capzEl.checked;
+
+  // Update values per trace
+  for (let i=0; i<valArrays.length; i++) {
+    Plotly.restyle(gd, { value: [valArrays[i]] }, [i]);
+    Plotly.restyle(gd, { isomin: [EF], isomax: [EF] }, [i]);
+    Plotly.restyle(gd, { 'caps.x': [!hideCaps], 'caps.y': [!hideCaps], 'caps.z': [!hideCaps] }, [i]);
+  }
+}
+
+
+
+
+  function recomputeAll(){
+    updateLabelsOnly();
+    seq++; const s = seq;
+    // capture camera BEFORE recompute
+    const gd = document.getElementById('fermi3d');
+    if(gd && gd._fullLayout && gd._fullLayout.scene && gd._fullLayout.scene.camera){
+      lastCamera = gd._fullLayout.scene.camera;
+    }
+    spin.style.display='inline';
+    const nbands=3;
+    const path = buildKPath(STEPS);
+    const VG = parseFloat(vgEl.value);
+    const N  = parseInt(nEl.value,10);
+    worker.postMessage({seq:s, task:'path', VG:VG, nbands:nbands, path:path});
+    worker.postMessage({seq:s, task:'grid', VG:VG, nbands:nbands, N:N});
+  }
+
+// Events (bind once to avoid duplicates)
+let eventsBound = false;
+function bindEventsOnce(){
+  if (eventsBound) return;
+  eventsBound = true;
+
+  // EF: live redraw while dragging — use ONLY 'input' (no 'change')
+  efEl.addEventListener('input', onEFInput, {passive:true});
+
+  // |VG| and N: update labels while dragging; recompute once on release
+  vgEl.addEventListener('input', onLabelInput, {passive:true});
+  nEl .addEventListener('input', onLabelInput, {passive:true});
+  vgEl.addEventListener('change', onRecompute);
+  nEl .addEventListener('change', onRecompute);
+
+  // Caps: simple redraw
+  capzEl.addEventListener('change', onCapsToggle);
+}
+
+// --- handlers ---
+let efFrame = 0;
+const EF_THROTTLE_MS = 90;  // ~11 fps
+let efT = 0;
+
+function onEFInput(){
+  updateLabelsOnly();
+  if (lastBands) drawBandPath(lastBands); // 2D is cheap
+
+  const EF = parseFloat(efEl.value);
+  const caps = capzEl.checked;
+  clearTimeout(efT);
+  efT = setTimeout(() => {
+    if (lastGrid && lastGridN) updateFsIso(EF, caps);
+  }, EF_THROTTLE_MS);
+}
+
+
+function onLabelInput(){ updateLabelsOnly(); }
+
+function onRecompute(){ recomputeAll(); }
+
+function onCapsToggle(){
+  if (lastGrid) drawFermi3D(lastGrid, lastGridN);      // pass N!
+}
+
+
+
+  // Worker replies
+worker.onmessage = function(e){
+  const msg = e.data;
+  if (msg.seq !== seq) return;
+
+  if (msg.task === 'path_done') {
+    lastBands = msg.bands;
+    drawBandPath(lastBands);
+  } else if (msg.task === 'grid_done') {
+    lastGrid = msg.val;
+    lastGridN = msg.N;
+
+    if (fsInitN !== lastGridN) {
+      ensureFsInit(lastGrid, lastGridN);   // (re)init figure (camera preserved)
+    } else {
+      updateFsInPlace(lastGrid, lastGridN); // fast in-place update
+    }
+    spin.style.display = 'none';
+  }
+};
+
+bindEventsOnce();
+  // Initial compute
+  recomputeAll();
+})(); // IIFE
+</script>
+</body>
+</html>
