@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tight-binding visualizer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root { --pad: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: var(--pad); }
+    h1 { font-size: 1.1rem; margin: 0 0 8px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    label { font-weight: 600; margin-right: 6px; }
+    #fig { width: 100%; height: 78vh; max-height: 900px; }
+    #status { margin: 6px 0 10px; color:#444; }
+    small { color:#555; }
+
+    /* Make sliders a bit easier to grab on mobile */
+    input[type="range"] { touch-action: pan-y; }
+
+    /* Compact buttons on small screens */
+    @media (max-width: 480px) {
+      h1 { font-size: 1rem; }
+      .row { gap: 6px; }
+      #fig { height: 70vh; }
+      button { padding: 6px 8px; font-size: 0.9rem; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Tight-binding visualizer — precomputed φ, responsive layout</h1>
+
+  <div class="row">
+    <div>
+      <label>a:</label><input id="aRange" type="range" min="0" max="24" step="1" value="12" style="width:260px" />
+      <span id="aVal"></span>
+    </div>
+    <div>
+      <label>k:</label><input id="kRange" type="range" min="0" max="40" step="1" value="0" style="width:260px" />
+      <span id="kVal"></span>
+    </div>
+    <div>
+      <button id="btnSet0">Show φ₀ & ψ₀ (with E₀)</button>
+      <button id="btnSet1">Show φ₁ & ψ₁ (with E₁)</button>
+      <button id="btnBoth">Show both sets (E₀ & E₁)</button>
+    </div>
+  </div>
+
+  <div id="status">Initializing…</div>
+  <div id="fig"></div>
+  <div id="viz-explainer" style="max-width: 1100px; margin-top: 10px; line-height:1.45;">
+  <h2 style="font-size:1rem;margin:0 0 6px;">Description</h2>
+  <p style="margin:0 0 8px;">
+    A 1D tight-binding toy model built from precomputed single-well atomic orbitals (&phi;<sub>0</sub>, &phi;<sub>1</sub>) and their
+    Bloch sums (&psi;<sub>k</sub>). The lattice spacing <em>a</em> and crystal momentum <em>k</em> are interactive.
+  </p>
+
+  <ul style="margin:0 0 8px 16px;padding:0;">
+    <li><b>Left panel (real space):</b> Fixed x-range [−16, 16]. From bottom to top:
+      scaled chain potential V(x), per-atom localized orbitals (&phi;<sub>0</sub> in blue/green, &phi;<sub>1</sub> in red/purple),
+      and the Bloch waveforms &psi;<sub>k</sub> built from those orbitals. Lines are vertically “staged” onto separate bands for clarity.
+      Atom centers are shown as markers along the chain.</li>
+    <li><b>Right panel (bands):</b> Tight-binding dispersions
+      E<sub>0</sub>(k)=&epsilon;<sub>0</sub>+2&nbsp;t<sub>0</sub>(a)cos(ka) and
+      E<sub>1</sub>(k)=&epsilon;<sub>1</sub>+2&nbsp;t<sub>1</sub>(a)cos(ka), with the current k shown by markers.
+      The k-axis rescales to [−&pi;/a, &pi;/a] when <em>a</em> changes; the energy axis is fixed across <em>a</em>.</li>
+    <li><b>Hopping from overlaps:</b> t<sub>n</sub>(a) is computed as
+      ⟨&phi;<sub>n</sub>|H|&phi;<sub>n</sub>(·−a)⟩ on the same finite-difference grid as V(x).
+      This reproduces the expected “s” / “p” behavior (including sign inversion for the p-like band).</li>
+  </ul>
+
+  <p style="margin:0 0 8px;">
+    Use the buttons to toggle which atomic/Bloch sets are visible:
+    “&phi;<sub>0</sub> &amp; &psi;<sub>0</sub>”, “&phi;<sub>1</sub> &amp; &psi;<sub>1</sub>”, or “both”.
+    Sliders: <b>a</b> changes lattice spacing (bandwidth via |t|), and <b>k</b> moves the Bloch phase/markers.
+  </p>
+
+  <p style="margin:0;">
+    <i>Notes:</i> &phi;<sub>0</sub>, &phi;<sub>1</sub>, &epsilon;<sub>0</sub>, &epsilon;<sub>1</sub> are precomputed (no eigensolve in the browser).
+    Left-panel amplitudes are rescaled only for display; relative shapes/signs are preserved.
+  </p>
+</div>
+
+
+<script>
+// ---------------------- Precomputed data (PASTE YOURS) ----------------------
+const eps0 = -1.017564;
+const eps1 = -0.336633;
+const phi0 = [
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001,
+  0.000001, 0.000002, 0.000002, 0.000002, 0.000002, 0.000003, 0.000003, 0.000004, 0.000004, 0.000005,
+  0.000005, 0.000006, 0.000007, 0.000008, 0.000009, 0.000011, 0.000012, 0.000014, 0.000016, 0.000018,
+  0.000021, 0.000024, 0.000027, 0.000031, 0.000036, 0.000041, 0.000047, 0.000053, 0.000061, 0.000070,
+  0.000080, 0.000091, 0.000104, 0.000119, 0.000136, 0.000156, 0.000178, 0.000204, 0.000232, 0.000266,
+  0.000303, 0.000346, 0.000395, 0.000451, 0.000515, 0.000588, 0.000671, 0.000765, 0.000873, 0.000995,
+  0.001135, 0.001294, 0.001475, 0.001680, 0.001914, 0.002181, 0.002484, 0.002828, 0.003219, 0.003663,
+  0.004168, 0.004741, 0.005391, 0.006129, 0.006965, 0.007913, 0.008988, 0.010204, 0.011582, 0.013140,
+  0.014903, 0.016895, 0.019146, 0.021686, 0.024552, 0.027783, 0.031424, 0.035521, 0.040130, 0.045309,
+  0.051123, 0.057643, 0.064947, 0.073119, 0.082251, 0.092440, 0.103791, 0.116416, 0.130430, 0.145954,
+  0.163112, 0.182028, 0.202821, 0.225603, 0.250474, 0.277511, 0.306760, 0.338225, 0.371847, 0.407495,
+  0.444931, 0.483791, 0.523552, 0.563497, 0.602686, 0.639935, 0.673820, 0.702730, 0.724990, 0.739078,
+  0.743907, 0.739078, 0.724990, 0.702730, 0.673820, 0.639935, 0.602686, 0.563497, 0.523552, 0.483791,
+  0.444931, 0.407495, 0.371847, 0.338225, 0.306760, 0.277511, 0.250474, 0.225603, 0.202821, 0.182028,
+  0.163112, 0.145954, 0.130430, 0.116416, 0.103791, 0.092440, 0.082251, 0.073119, 0.064947, 0.057643,
+  0.051123, 0.045309, 0.040130, 0.035521, 0.031424, 0.027783, 0.024552, 0.021686, 0.019146, 0.016895,
+  0.014903, 0.013140, 0.011582, 0.010204, 0.008988, 0.007913, 0.006965, 0.006129, 0.005391, 0.004741,
+  0.004168, 0.003663, 0.003219, 0.002828, 0.002484, 0.002181, 0.001914, 0.001680, 0.001475, 0.001294,
+  0.001135, 0.000995, 0.000873, 0.000765, 0.000671, 0.000588, 0.000515, 0.000451, 0.000395, 0.000346,
+  0.000303, 0.000266, 0.000232, 0.000204, 0.000178, 0.000156, 0.000136, 0.000119, 0.000104, 0.000091,
+  0.000080, 0.000070, 0.000061, 0.000053, 0.000047, 0.000041, 0.000036, 0.000031, 0.000027, 0.000024,
+  0.000021, 0.000018, 0.000016, 0.000014, 0.000012, 0.000011, 0.000009, 0.000008, 0.000007, 0.000006,
+  0.000005, 0.000005, 0.000004, 0.000004, 0.000003, 0.000003, 0.000002, 0.000002, 0.000002, 0.000002,
+  0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000
+];
+const phi1 = [
+  -0.000000, -0.000000, -0.000000, -0.000000, -0.000000, -0.000001, -0.000001, -0.000001, -0.000001, -0.000001,
+  -0.000001, -0.000001, -0.000001, -0.000001, -0.000002, -0.000002, -0.000002, -0.000002, -0.000002, -0.000003,
+  -0.000003, -0.000003, -0.000003, -0.000004, -0.000004, -0.000004, -0.000004, -0.000005, -0.000005, -0.000006,
+  -0.000006, -0.000007, -0.000007, -0.000008, -0.000008, -0.000009, -0.000010, -0.000010, -0.000011, -0.000012,
+  -0.000013, -0.000014, -0.000015, -0.000016, -0.000018, -0.000019, -0.000020, -0.000022, -0.000024, -0.000026,
+  -0.000028, -0.000030, -0.000032, -0.000034, -0.000037, -0.000040, -0.000043, -0.000046, -0.000050, -0.000054,
+  -0.000058, -0.000063, -0.000067, -0.000073, -0.000078, -0.000084, -0.000091, -0.000098, -0.000105, -0.000113,
+  -0.000122, -0.000131, -0.000141, -0.000152, -0.000164, -0.000176, -0.000190, -0.000204, -0.000220, -0.000236,
+  -0.000254, -0.000274, -0.000294, -0.000317, -0.000341, -0.000367, -0.000394, -0.000424, -0.000456, -0.000490,
+  -0.000527, -0.000567, -0.000610, -0.000656, -0.000705, -0.000757, -0.000814, -0.000875, -0.000940, -0.001010,
+  -0.001086, -0.001166, -0.001253, -0.001346, -0.001446, -0.001553, -0.001667, -0.001790, -0.001922, -0.002064,
+  -0.002215, -0.002378, -0.002552, -0.002739, -0.002938, -0.003153, -0.003382, -0.003628, -0.003891, -0.004173,
+  -0.004474, -0.004797, -0.005142, -0.005512, -0.005907, -0.006329, -0.006781, -0.007265, -0.007781, -0.008334,
+  -0.008923, -0.009554, -0.010227, -0.010946, -0.011713, -0.012532, -0.013406, -0.014339, -0.015333, -0.016394,
+  -0.017524, -0.018729, -0.020013, -0.021380, -0.022836, -0.024385, -0.026034, -0.027788, -0.029653, -0.031636,
+  -0.033743, -0.035982, -0.038358, -0.040881, -0.043557, -0.046395, -0.049403, -0.052590, -0.055965, -0.059537,
+  -0.063315, -0.067310, -0.071531, -0.075988, -0.080692, -0.085652, -0.090880, -0.096385, -0.102177, -0.108267,
+  -0.114664, -0.121378, -0.128417, -0.135790, -0.143504, -0.151565, -0.159979, -0.168750, -0.177879, -0.187368,
+  -0.197213, -0.207412, -0.217955, -0.228833, -0.240030, -0.251528, -0.263303, -0.275325, -0.287560, -0.299964,
+  -0.312487, -0.325072, -0.337649, -0.350142, -0.362460, -0.374502, -0.386152, -0.397280, -0.407740, -0.417369,
+  -0.425986, -0.433391, -0.439364, -0.443663, -0.446027, -0.446174, -0.443801, -0.438589, -0.430204, -0.418301,
+  -0.402539, -0.382582, -0.358128, -0.328922, -0.294796, -0.255705, -0.211789, -0.163424, -0.111288, -0.056381,
+  0.000000, 0.056381, 0.111288, 0.163424, 0.211789, 0.255705, 0.294796, 0.328922, 0.358128, 0.382582,
+  0.402539, 0.418301, 0.430204, 0.438589, 0.443801, 0.446174, 0.446027, 0.443663, 0.439364, 0.433391,
+  0.425986, 0.417369, 0.407740, 0.397280, 0.386152, 0.374502, 0.362460, 0.350142, 0.337649, 0.325072,
+  0.312487, 0.299964, 0.287560, 0.275325, 0.263303, 0.251528, 0.240030, 0.228833, 0.217955, 0.207412,
+  0.197213, 0.187368, 0.177879, 0.168750, 0.159979, 0.151565, 0.143504, 0.135790, 0.128417, 0.121378,
+  0.114664, 0.108267, 0.102177, 0.096385, 0.090880, 0.085652, 0.080692, 0.075988, 0.071531, 0.067310,
+  0.063315, 0.059537, 0.055965, 0.052590, 0.049403, 0.046395, 0.043557, 0.040881, 0.038358, 0.035982,
+  0.033743, 0.031636, 0.029653, 0.027788, 0.026034, 0.024385, 0.022836, 0.021380, 0.020013, 0.018729,
+  0.017524, 0.016394, 0.015333, 0.014339, 0.013406, 0.012532, 0.011713, 0.010946, 0.010227, 0.009554,
+  0.008923, 0.008334, 0.007781, 0.007265, 0.006781, 0.006329, 0.005907, 0.005512, 0.005142, 0.004797,
+  0.004474, 0.004173, 0.003891, 0.003628, 0.003382, 0.003153, 0.002938, 0.002739, 0.002552, 0.002378,
+  0.002215, 0.002064, 0.001922, 0.001790, 0.001667, 0.001553, 0.001446, 0.001346, 0.001253, 0.001166,
+  0.001086, 0.001010, 0.000940, 0.000875, 0.000814, 0.000757, 0.000705, 0.000656, 0.000610, 0.000567,
+  0.000527, 0.000490, 0.000456, 0.000424, 0.000394, 0.000367, 0.000341, 0.000317, 0.000294, 0.000274,
+  0.000254, 0.000236, 0.000220, 0.000204, 0.000190, 0.000176, 0.000164, 0.000152, 0.000141, 0.000131,
+  0.000122, 0.000113, 0.000105, 0.000098, 0.000091, 0.000084, 0.000078, 0.000073, 0.000067, 0.000063,
+  0.000058, 0.000054, 0.000050, 0.000046, 0.000043, 0.000040, 0.000037, 0.000034, 0.000032, 0.000030,
+  0.000028, 0.000026, 0.000024, 0.000022, 0.000020, 0.000019, 0.000018, 0.000016, 0.000015, 0.000014,
+  0.000013, 0.000012, 0.000011, 0.000010, 0.000010, 0.000009, 0.000008, 0.000008, 0.000007, 0.000007,
+  0.000006, 0.000006, 0.000005, 0.000005, 0.000004, 0.000004, 0.000004, 0.000004, 0.000003, 0.000003,
+  0.000003, 0.000003, 0.000002, 0.000002, 0.000002, 0.000002, 0.000002, 0.000001, 0.000001, 0.000001,
+  0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000001, 0.000000, 0.000000, 0.000000, 0.000000,
+  0.000000
+];
+
+
+// ---------------------- Utilities ----------------------
+const linspace=(a,b,n)=>{if(n===1)return[a];const d=(b-a)/(n-1),out=[];for(let i=0;i<n;i++)out.push(a+i*d);return out;};
+const trapezoid=(y,x)=>{let S=0;for(let i=0;i<x.length-1;i++)S+=0.5*(y[i]+y[i+1])*(x[i+1]-x[i]);return S;};
+const interpShiftVec=(f,x,sh)=>{const dx=x[1]-x[0],x0=x[0];const out=new Array(x.length).fill(0);
+  for(let i=0;i<x.length;i++){const xs=x[i]-sh;const idxf=(xs-x0)/dx;const i0=Math.floor(idxf),frac=idxf-i0;
+    if(i0>=0&&i0<x.length-1)out[i]=(1-frac)*f[i0]+frac*f[i0+1];}
+  return out;};
+const scaleSymmetricToBand=(y,lo,hi)=>{const span=(hi-lo)*0.92,mid=lo+(hi-lo)/2;let amax=0;
+  for(const v of y){const av=Math.abs(v);if(isFinite(av)&&av>amax)amax=av;} if(amax<1e-12)amax=1;
+  return y.map(v=>mid+(v/amax)*(span/2));};
+
+// ---------------------- Layout banding & constants ----------------------
+const V_LOW=0.02,V_HIGH=0.28,PHI_LOW=0.32,PHI_HIGH=0.48,PSI0_LOW=0.52,PSI0_HIGH=0.74,PSI1_LOW=0.76,PSI1_HIGH=0.98,ATOM_Y=0.29;
+const S_COLORS=['#1f77b4','#2ca02c'], P_COLORS=['#d62728','#9467bd'];
+
+// ---------------------- Physics helpers ----------------------
+function softCoulombSingleWell(x,Z=1,aSoft=0.6){return x.map(v=>-Z/Math.sqrt(v*v+aSoft*aSoft));}
+function chainPotential(x,a,N,Z=1,aSoft=0.6){
+  const centers=[];for(let i=0;i<N;i++)centers.push((i-Math.floor(N/2))*a);
+  const V=new Array(x.length).fill(0);
+  for(const R of centers){for(let i=0;i<x.length;i++)V[i]+=-Z/Math.sqrt((x[i]-R)**2+aSoft*aSoft);}
+  return{V,centers};
+}
+function blochSum(x,phi,a,N,k){
+  const centers=[];for(let i=0;i<N;i++)centers.push((i-Math.floor(N/2))*a);
+  const psi=new Array(x.length).fill(0);
+  for(const R of centers){const sh=interpShiftVec(phi,x,R);const c=Math.cos(k*R);
+    for(let i=0;i<x.length;i++)psi[i]+=c*sh[i];}
+  const norm=Math.sqrt(trapezoid(psi.map(v=>v*v),x)); if(norm>0)for(let i=0;i<psi.length;i++)psi[i]/=norm;
+  return psi;
+}
+// Finite-difference H (NOTE: No eigensolve in JS)
+function finiteDifferenceHamiltonian(x,Vx){
+  const dx=x[1]-x[0], n=x.length;
+  const H=Array.from({length:n},()=>new Array(n).fill(0));
+  const invdx2=1/(dx*dx), off=-0.5*invdx2;
+  for(let i=0;i<n;i++){ H[i][i]=Vx[i]+invdx2; if(i<n-1){H[i][i+1]=off; H[i+1][i]=off;} }
+  return H;
+}
+// Correct hopping: t(a)=<φ|H|φ(·−a)>
+function hoppingFromOverlap(H,phi,x,a){
+  const sh=interpShiftVec(phi,x,a);
+  const n=sh.length; const y=new Array(n).fill(0);
+  for(let i=0;i<n;i++){ let s=0, row=H[i]; for(let j=0;j<n;j++) s+=row[j]*sh[j]; y[i]=s; }
+  return trapezoid(phi.map((v,i)=>v*y[i]),x);
+}
+
+// ---------------------- State ----------------------
+let gd,statusEl,aSlider,kSlider,aValSpan,kValSpan;
+let aValues,midIdx,a0,kPoints,N,Z,aSoft,x,Hsingle;
+let pre={}, EminGlobal, EmaxGlobal;
+
+// Trace index helpers (keep constant ordering)
+function traceIdx(N){
+  const basePhi0Start = 2;
+  const basePhi1Start = 2+N;
+  const psi0 = 2+2*N;
+  const psi1 = psi0+1;
+  const E0  = psi1+1;
+  const E1  = E0+1;
+  const mE0 = E1+1;
+  const mE1 = mE0+1;
+  return {basePhi0Start, basePhi1Start, psi0, psi1, E0, E1, mE0, mE1, total: mE1+1};
+}
+
+// Build a single-a dataset (no visibility changes here)
+function buildA(a){
+  if(pre[a]) return pre[a];
+  const {V, centers} = chainPotential(x,a,N,Z,aSoft);
+  const Vmin=Math.min(...V), Vmax=Math.max(...V);
+  const Vscaled=V.map(v=>V_LOW+((v-Vmin)/(Vmax-Vmin+1e-12))*(V_HIGH-V_LOW));
+  const t0 = hoppingFromOverlap(Hsingle, phi0, x, a);
+  const t1 = hoppingFromOverlap(Hsingle, phi1, x, a);
+  const kline = linspace(-Math.PI/a, Math.PI/a, 250);
+  const E0_line = kline.map(k=>eps0 + 2*t0*Math.cos(k*a));
+  const E1_line = kline.map(k=>eps1 + 2*t1*Math.cos(k*a));
+  const k_vals = linspace(-Math.PI/a, Math.PI/a, kPoints);
+  const E0_sel = k_vals.map(k=>eps0 + 2*t0*Math.cos(k*a));
+  const E1_sel = k_vals.map(k=>eps1 + 2*t1*Math.cos(k*a));
+  const psi0_scaled=[], psi1_scaled=[];
+  for(const kv of k_vals){
+    psi0_scaled.push(scaleSymmetricToBand(blochSum(x,phi0,a,N,kv), PSI0_LOW, PSI0_HIGH));
+    psi1_scaled.push(scaleSymmetricToBand(blochSum(x,phi1,a,N,kv), PSI1_LOW, PSI1_HIGH));
+  }
+  const phi0_segments=[], phi1_segments=[];
+  for(const R of centers){
+    const sh0=interpShiftVec(phi0,x,R), sh1=interpShiftVec(phi1,x,R);
+    const y0=sh0.map((v,i)=>x[i]>=R-a&&x[i]<=R+a?v:NaN);
+    const y1=sh1.map((v,i)=>x[i]>=R-a&&x[i]<=R+a?v:NaN);
+    phi0_segments.push({x:[...x], y:scaleSymmetricToBand(y0,PHI_LOW,PHI_HIGH)});
+    phi1_segments.push({x:[...x], y:scaleSymmetricToBand(y1,PHI_LOW,PHI_HIGH)});
+  }
+  pre[a]={centers,Vscaled,phi0_segments,phi1_segments,kline,E0_line,E1_line,k_vals,E0_sel,E1_sel,psi0_scaled,psi1_scaled};
+  return pre[a];
+}
+
+// Compute fixed global band y-range using ±2|t| (fast; no eigensolve; no dense k scan)
+function computeGlobalBandRange(){
+  let emin=+Infinity, emax=-Infinity;
+  for(const a of aValues){
+    const t0 = Math.abs(hoppingFromOverlap(Hsingle, phi0, x, a));
+    const t1 = Math.abs(hoppingFromOverlap(Hsingle, phi1, x, a));
+    emin = Math.min(emin, eps0 - 2*t0, eps1 - 2*t1);
+    emax = Math.max(emax, eps0 + 2*t0, eps1 + 2*t1);
+  }
+  return [emin, emax];
+}
+
+// Outer-axis styling (frames)
+function axisFrame(title){
+  return {
+    title, showgrid:false, zeroline:false,
+    showline:true, linewidth:1, linecolor:'#222', mirror:'all', ticks:'outside'
+  };
+}
+
+// Responsive domains (portrait = vertical stack; landscape = side-by-side)
+function domainsForOrientation(){
+  const portrait = window.matchMedia("(orientation: portrait)").matches || window.innerHeight > window.innerWidth;
+  if (portrait){
+    return {
+      xaxis:  {domain:[0,1]},
+      yaxis:  {domain:[0.52,1]},
+      xaxis2: {domain:[0,1]},
+      yaxis2: {domain:[0,0.48]}
+    };
+  } else {
+    return {
+      xaxis:  {domain:[0,0.54]},
+      yaxis:  {domain:[0,1]},
+      xaxis2: {domain:[0.58,1]},
+      yaxis2: {domain:[0,1]}
+    };
+  }
+}
+
+// ---------------------- Main ----------------------
+async function main(){
+  statusEl=document.getElementById('status');
+  let L=44, dx=0.1;
+  x=[]; for(let xi=-L/2; xi<=L/2+1e-9; xi+=dx) x.push(xi);
+  Z=1; aSoft=0.6; N=11; kPoints=41;
+
+  // Build single-well H once (no eigensolve here)
+  const Vsingle = softCoulombSingleWell(x, Z, aSoft);
+  Hsingle = finiteDifferenceHamiltonian(x, Vsingle);
+
+  // a-grid & global band y-range (fast)
+  aValues = linspace(3,10,25);
+  midIdx = Math.floor(aValues.length/2);
+  a0 = aValues[midIdx];
+  [EminGlobal, EmaxGlobal] = computeGlobalBandRange();
+  const pad = 0.1*(EmaxGlobal - EminGlobal || 1.0);
+  EminGlobal -= pad; EmaxGlobal += pad;
+
+  // Build initial data
+  const D0 = buildA(a0);
+  gd=document.getElementById('fig');
+  aSlider=document.getElementById('aRange');
+  kSlider=document.getElementById('kRange');
+  aValSpan=document.getElementById('aVal');
+  kValSpan=document.getElementById('kVal');
+  aValSpan.textContent = a0.toFixed(2);
+  kValSpan.textContent = D0.k_vals[0].toFixed(3);
+  kSlider.max = (D0.k_vals.length-1).toString();
+
+  const idx = traceIdx(N);
+  const traces = [
+    {x:x,y:D0.Vscaled,mode:'lines',name:'V(x) (scaled)'},
+    {x:D0.centers,y:new Array(D0.centers.length).fill(ATOM_Y),mode:'markers',name:'atoms'}
+  ];
+  D0.phi0_segments.forEach((seg,j)=>traces.push({x:seg.x,y:seg.y,mode:'lines',showlegend:false,line:{color:S_COLORS[j%2]}}));
+  D0.phi1_segments.forEach((seg,j)=>traces.push({x:seg.x,y:seg.y,mode:'lines',showlegend:false,line:{color:P_COLORS[j%2]}}));
+  traces.push({x:x,y:D0.psi0_scaled[0],mode:'lines',name:'Bloch ψₖ from φ₀ (scaled)',visible:'legendonly'});
+  traces.push({x:x,y:D0.psi1_scaled[0],mode:'lines',name:'Bloch ψₖ from φ₁ (scaled)',visible:'legendonly'});
+  traces.push({x:D0.kline,y:D0.E0_line,mode:'lines',name:'E₀(k)',xaxis:'x2',yaxis:'y2'});
+  traces.push({x:D0.kline,y:D0.E1_line,mode:'lines',name:'E₁(k)',xaxis:'x2',yaxis:'y2'});
+  traces.push({x:[D0.k_vals[0]],y:[D0.E0_sel[0]],mode:'markers',name:'k marker (E₀)',xaxis:'x2',yaxis:'y2'});
+  traces.push({x:[D0.k_vals[0]],y:[D0.E1_sel[0]],mode:'markers',name:'k marker (E₁)',xaxis:'x2',yaxis:'y2'});
+
+  const dom = domainsForOrientation();
+const baseLayout = {
+  // LEFT subplot
+  xaxis:  { ...axisFrame('x'), ...dom.xaxis,  range:[-16, 16], anchor:'y' },
+  yaxis:  { ...axisFrame('scaled layout'), ...dom.yaxis,        anchor:'x' },
+
+  // RIGHT subplot (IMPORTANT: anchor y2<->x2 and draw ticks/line)
+  xaxis2: { ...axisFrame('k'), ...dom.xaxis2, range:[-Math.PI/a0, Math.PI/a0], anchor:'y2' },
+  yaxis2: { ...axisFrame('Energy'), ...dom.yaxis2,
+            range:[EminGlobal, EmaxGlobal],
+            anchor:'x2', side:'right',
+            showticklabels:true, ticks:'outside', showline:true, mirror:'all' },
+
+  legend:{orientation:'h', y:-0.22},
+  margin:{l:60,r:30,t:30,b:60}
+};
+
+  await Plotly.newPlot(gd, traces, baseLayout);
+  applyVisibility(true,  /* φ0 */
+                false, /* φ1 */
+                true,  /* ψ0 */
+                false, /* ψ1 */
+                true,  /* E0 (and marker) */
+                false  /* E1 */);
+  statusEl.textContent='Ready.';
+
+  // --- Slider logic (preserve visibility) ---
+  aSlider.oninput = () => {
+    const a = aValues[+aSlider.value];
+    aValSpan.textContent = a.toFixed(2);
+    const D = buildA(a);
+    // keep current k index and clamp
+    let i = Math.min(+kSlider.value, D.k_vals.length-1);
+    kSlider.value = i;
+    kValSpan.textContent = D.k_vals[i].toFixed(3);
+
+    // Build update arrays WITHOUT changing visibility
+    const updX = [], updY = [], updIdx = [];
+    // 0: V
+    updX.push(x); updY.push(D.Vscaled); updIdx.push(0);
+    // 1: atoms
+    updX.push(D.centers); updY.push(new Array(D.centers.length).fill(ATOM_Y)); updIdx.push(1);
+    // φ0 group
+    for(let j=0;j<N;j++){ updX.push(D.phi0_segments[j].x); updY.push(D.phi0_segments[j].y); updIdx.push(idx.basePhi0Start+j); }
+    // φ1 group
+    for(let j=0;j<N;j++){ updX.push(D.phi1_segments[j].x); updY.push(D.phi1_segments[j].y); updIdx.push(idx.basePhi1Start+j); }
+    // ψ0, ψ1 at current k
+    updX.push(x); updY.push(D.psi0_scaled[i]); updIdx.push(idx.psi0);
+    updX.push(x); updY.push(D.psi1_scaled[i]); updIdx.push(idx.psi1);
+    // E0/E1 lines
+    updX.push(D.kline); updY.push(D.E0_line); updIdx.push(idx.E0);
+    updX.push(D.kline); updY.push(D.E1_line); updIdx.push(idx.E1);
+    // markers
+    updX.push([D.k_vals[i]]); updY.push([D.E0_sel[i]]); updIdx.push(idx.mE0);
+    updX.push([D.k_vals[i]]); updY.push([D.E1_sel[i]]); updIdx.push(idx.mE1);
+
+    Plotly.restyle(gd, {x:updX, y:updY}, updIdx);
+    // Re-range k axis for new a; keep global fixed Energy axis
+Plotly.relayout(gd, {
+  'xaxis.range':  [-16, 16],
+  'xaxis2.range': [-Math.PI/a, Math.PI/a],
+  'yaxis2.range': [EminGlobal, EmaxGlobal],
+  'xaxis2.anchor': 'y2',
+  'yaxis2.anchor': 'x2'
+});
+  };
+
+  kSlider.oninput = () => {
+    const a = aValues[+aSlider.value];
+    const D = buildA(a);
+    const i = +kSlider.value;
+    kValSpan.textContent = D.k_vals[i].toFixed(3);
+    // Update only ψ traces + markers to current k
+    Plotly.restyle(gd,
+      { y:[D.psi0_scaled[i], D.psi1_scaled[i], [D.E0_sel[i]], [D.E1_sel[i]]],
+        x:[x, x, [D.k_vals[i]], [D.k_vals[i]]] },
+      [idx.psi0, idx.psi1, idx.mE0, idx.mE1]
+    );
+  };
+
+  // --- Buttons (three only) ---
+  function applyVisibility(show_phi0,show_phi1,show_psi0,show_psi1,show_E0,show_E1){
+    const vis = Array(traceIdx(N).total).fill('legendonly');
+    vis[0]=true; vis[1]=true; // V, atoms always visible
+    for(let j=0;j<N;j++) vis[idx.basePhi0Start+j] = show_phi0 ? true : 'legendonly';
+    for(let j=0;j<N;j++) vis[idx.basePhi1Start+j] = show_phi1 ? true : 'legendonly';
+    vis[idx.psi0] = show_psi0 ? true : 'legendonly';
+    vis[idx.psi1] = show_psi1 ? true : 'legendonly';
+    vis[idx.E0]  = show_E0 ? true : 'legendonly';
+    vis[idx.mE0] = show_E0 ? true : 'legendonly';
+    vis[idx.E1]  = show_E1 ? true : 'legendonly';
+    vis[idx.mE1] = show_E1 ? true : 'legendonly';
+    const allIdx = vis.map((_,i)=>i);
+    Plotly.restyle(gd, {visible:vis}, allIdx);
+  }
+  document.getElementById('btnSet0').onclick=()=>applyVisibility(true,false,true,false,true,false);
+  document.getElementById('btnSet1').onclick=()=>applyVisibility(false,true,false,true,false,true);
+  document.getElementById('btnBoth').onclick=()=>applyVisibility(true,true,true,true,true,true);
+
+  // --- Responsive reflow (portrait vs landscape) ---
+  function applyResponsiveDomains(){
+  const d = domainsForOrientation();
+  Plotly.relayout(gd, {
+    'xaxis.domain':  d.xaxis.domain,
+    'yaxis.domain':  d.yaxis.domain,
+    'xaxis2.domain': d.xaxis2.domain,
+    'yaxis2.domain': d.yaxis2.domain,
+    // keep anchors correct when layout changes
+    'xaxis.anchor':  'y',
+    'yaxis.anchor':  'x',
+    'xaxis2.anchor': 'y2',
+    'yaxis2.anchor': 'x2'
+  });
+}
+  window.addEventListener('resize', applyResponsiveDomains);
+  window.addEventListener('orientationchange', applyResponsiveDomains);
+  applyResponsiveDomains();
+}
+
+window.addEventListener('load', main);
+</script>
+</body>
+</html>
