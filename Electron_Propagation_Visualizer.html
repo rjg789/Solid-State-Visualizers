@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Electron Propagation Visualizer — 1D Bands with E-field</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root { --gap: 12px; --pad: 12px; --bg: #ffffff; --fg: #111827; --muted: #4b5563; }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; }
+    .wrap { display: grid; grid-template-columns: 360px 1fr; grid-template-rows: auto 1fr auto; gap: var(--gap); min-height: 100vh; }
+    header { grid-column: 1 / -1; padding: var(--pad); border-bottom: 1px solid #e5e7eb; }
+    .controls { overflow: auto; padding: var(--pad); border-right: 1px solid #e5e7eb; }
+    .plots { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; gap: var(--gap); padding: var(--pad); }
+    .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: var(--pad); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .row { display: grid; grid-template-columns: 1fr 160px; align-items: center; gap: 8px; margin: 10px 0; }
+    .row > label { font-size: 13px; color: var(--muted); }
+    .row.inline { grid-template-columns: auto auto; gap: 10px; }
+    input[type="range"] { width: 100%; }
+    select, input[type="number"] { width: 100%; background: #ffffff; color: var(--fg); border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px; }
+    button { background: #f3f4f6; color: var(--fg); border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    button:hover { background: #e5e7eb; }
+    footer { grid-column: 1 / -1; padding: var(--pad); border-top: 1px solid #e5e7eb; font-size: 13px; color: var(--muted); }
+
+    /* Responsive layout for mobile */
+    @media (max-width: 1100px){
+      .wrap { grid-template-columns: 1fr; }
+      .controls { border-right: none; border-bottom: 1px solid #e5e7eb; }
+      .plots { grid-template-columns: 1fr; grid-template-rows: auto; }
+    }
+    @media (orientation: landscape) and (max-width: 960px){ #realPlot, #kPlot { height: 360px !important; } }
+    @media (orientation: portrait) and (max-width: 960px){ #realPlot, #kPlot { height: 420px !important; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h2>Electron Propagation Visualizer — 1D Crystal</h2>
+      <div style="font-size:13px; color:var(--muted)">Real space ψ(x,t), k-space packet, and energy vs time under applied field.</div>
+      <div style="margin-top:6px; display:flex; gap:8px;">
+        <button id="playBtn">▶ Play</button>
+        <button id="pauseBtn">⏸ Pause</button>
+        <button id="stepBtn">⏭ Step</button>
+        <button id="resetBtn">⟲ Reset</button>
+      </div>
+    </header>
+
+    <aside class="controls">
+      <div class="card">
+        <div class="row"><label>Lattice constant a</label><input id="a" type="number" value="1.0" step="0.1"></div>
+        <div class="row"><label>t (hopping)</label><input id="t" type="number" value="1.0" step="0.1"></div>
+        <div class="row"><label>E field</label><input id="Efield" type="range" min="-2" max="2" step="0.01" value="0.3"></div>
+        <div class="row"><label>k₀ (7π/8a default)</label><input id="k0" type="range" min="-3.14" max="3.14" step="0.01" value="2.7489"></div>
+        <div class="row"><label>σₖ</label><input id="sigk" type="range" min="0.05" max="2.0" step="0.05" value="0.10"></div>
+        <div class="row"><label>dt</label><input id="dt" type="number" value="0.02" step="0.001"></div>
+        <div class="row"><label>Scatter rate Γ</label><input id="gamma" type="range" min="0" max="10" step="0.01" value="0.00"></div>
+        <div class="row"><label>Scatter Δk std</label><input id="dkScat" type="range" min="0" max="1" step="0.01" value="0.03"></div>
+        <div class="row"><label>Scattering</label>
+          <select id="scatMode">
+            <option value="rta" selected>RTA clamp (no broadening)</option>
+            <option value="diff">Diffusive (broadening)</option>
+          </select>
+        </div>
+        <div class="row inline">
+          <label for="center" style="margin-right:6px;">Center envelope</label>
+          <input id="center" type="checkbox" />
+        </div>
+        <div class="row inline">
+          <label for="demod" style="margin-right:6px;">Demodulate carrier (show envelope)</label>
+          <input id="demod" type="checkbox" />
+        </div>
+        <div class="row"><label>Phase convention</label>
+          <select id="phaseConv">
+            <option value="mid" selected>Mid-gap zero (current)</option>
+            <option value="bottom">Bottom-of-band zero</option>
+            <option value="center">Center frequency removed</option>
+          </select>
+        </div>
+        <div class="row inline">
+          <label for="showEnergy" style="margin-right:6px;">Show energy & drift plot</label>
+          <input id="showEnergy" type="checkbox" />
+        </div>
+        <div class="row"><label>Atoms per view</label><input id="nAtoms" type="number" value="200" step="10"></div>
+      </div>
+    </aside>
+
+    <main class="plots">
+      <div class="card"><div id="realPlot" style="height:420px"></div></div>
+      <div class="card"><div id="kPlot" style="height:420px"></div></div>
+      <div id="energyCard" class="card" style="grid-column:1 / span 2; display:none;"><!-- hidden by default -->
+        <div id="energyPlot" style="height:280px"></div>
+      </div>
+    </main>
+
+    <section id="viz-doc" class="doc" style="max-width:960px;margin:24px auto;color:#111827;">
+      <h2 style="margin-top:0.5rem;">Description</h2>
+      <p>This visualizer shows semiclassical electron dynamics in a 1D crystal band under a uniform electric field. A narrow packet in k-space (a superposition of Bloch states) evolves with the acceleration theorem <em>ℏḱ = −eE</em>, while its real-space envelope moves with the group velocity <em>v<sub>g</sub> = ∂E/∂k</em>. With no scattering, the packet executes coherent <em>Bloch oscillations</em>, reversing direction at the Brillouin-zone edges. With scattering, you can choose between a momentum-relaxing (RTA) model that pins the packet near a k-region and a diffusive model that broadens |c<sub>k</sub>|.</p>
+
+      <h3>Parameters</h3>
+      <ul>
+        <li><strong>a</strong>: Lattice constant (BZ width 2π/a). Typical: 1.</li>
+        <li><strong>t</strong>: Tight-binding hopping (band curvature). Larger <em>t</em> → larger group velocities.</li>
+        <li><strong>E</strong>: Electric field magnitude (sets Bloch frequency ω<sub>B</sub>=eEa/ℏ).</li>
+        <li><strong>k₀</strong>: Initial packet center in k (default 7π/8a).</li>
+        <li><strong>σₖ</strong>: Packet width in k. Smaller σₖ → broader |ψ| in x.</li>
+        <li><strong>Δk std</strong>: Kick width for diffusive scattering (small-angle processes).</li>
+        <li><strong>Γ</strong>: Scattering rate. In RTA, steady k-offset ~ eEτ/ℏ (τ=1/Γ).</li>
+        <li><strong>Atoms per view</strong> (nAtoms): Length of the 1D ring shown (default 200).</li>
+        <li><strong>Δt</strong>: Time step for animation.</li>
+        <li><strong>Center envelope</strong>: When ON, the envelope is kept in view; the carrier then drifts at \(v_p - v_g\). Turn OFF to watch both envelope and carrier travel in the lab frame.</li>
+        <li><strong>Demodulate carrier</strong>: If checked, shows the envelope (smooth Gaussian) by removing the carrier; leave unchecked to see the oscillating wave.</li>
+        <li><strong>Phase convention</strong>: Display-only reference for the carrier phase: mid-gap zero, bottom-of-band zero, or remove the center frequency.</li>
+        <li><strong>Show energy & drift plot</strong>: Toggles the ⟨E⟩(t) and ⟨x⟩/a plot.</li>
+      </ul>
+    </section>
+
+    <footer>Bloch oscillations: coherent oscillations of crystal momentum under a static field. In real materials scattering interrupts them, yielding conduction and Joule heating. This demo shows real-space ψ(x,t), k-space packet, and average band energy vs time with scattering.</footer>
+  </div>
+
+<script>
+(function(){
+  'use strict';
+  // =============== Utilities ===============
+  const modBZ = (k,G)=>{let h=G/2;while(k>=h)k-=G;while(k<-h)k+=G;return k;};
+  const byId = id => document.getElementById(id);
+  function getValNum(id, def){ const n=byId(id); if(!n || n.value==null) return def; const v=parseFloat(n.value); return Number.isFinite(v)?v:def; }
+  function getSel(id, def){ const n=byId(id); return (n && n.value!=null)? n.value : def; }
+  function getChk(id){ const n=byId(id); return !!(n && n.checked); }
+
+  // Fractional circular shift (for smooth centering)
+  function shiftArrayFractional(arr, s){
+    const N = arr.length, out = new Array(N);
+    let sInt = Math.floor(s);
+    let f = s - sInt;           // 0 ≤ f < 1
+    sInt = ((sInt % N) + N) % N;
+    for (let i=0;i<N;i++){
+      const i0 = (i - sInt + N) % N;
+      const i1 = (i0 - 1 + N) % N;
+      const a0 = arr[i0], a1 = arr[i1];
+      out[i] = (1 - f)*a0 + f*a1;
+    }
+    return out;
+  }
+
+  // Display helper: keep physics with unwrapped k, display with wrapped k and a phase convention (Ω shift)
+  function reWithWrappedCarrier(psi, x, kUnwrap, kWrap, showEnvelope, omegaShift, t){
+    const N = x.length, reVis = new Array(N);
+    const cwt = Math.cos(omegaShift*t), swt = Math.sin(omegaShift*t);
+    for (let i=0;i<N;i++){
+      // Demodulate by unwrapped k: ψ_env = ψ * e^{-ik_unwrap x}
+      const α = kUnwrap * x[i];
+      const cα = Math.cos(α), sα = Math.sin(α);
+      const Re_env = psi.re[i]*cα + psi.im[i]*sα;
+      const Im_env = psi.im[i]*cα - psi.re[i]*sα;
+
+      // Rotate envelope globally in time by Ω_ref to change display phase convention
+      const Re_rot =  Re_env*cwt - Im_env*swt;
+      const Im_rot =  Re_env*swt + Im_env*cwt;
+
+      if (showEnvelope){
+        reVis[i] = Re_rot; // envelope only
+      } else {
+        // Remodulate by wrapped k
+        const β = kWrap * x[i];
+        const cβ = Math.cos(β), sβ = Math.sin(β);
+        reVis[i] = Re_rot*cβ - Im_rot*sβ;
+      }
+    }
+    return reVis;
+  }
+
+  // =============== Panels & globals ===============
+  const realDiv   = byId('realPlot');
+  const kDiv      = byId('kPlot');
+  const energyDiv = byId('energyPlot');
+  const energyCard= byId('energyCard');
+  const playBtn=byId('playBtn'), pauseBtn=byId('pauseBtn'), stepBtn=byId('stepBtn'), resetBtn=byId('resetBtn');
+
+  let params={}, state={}, animHandle=null;
+
+  function readParams(){
+    const a      = getValNum('a',       1.0);
+    const t      = getValNum('t',       1.0);
+    const Delta  = 1.0;           // fixed TB-like 2-band
+    const E      = getValNum('Efield',  0.3);
+    const k0     = getValNum('k0',      2.7489); // 7π/8 (a=1)
+    const dt     = getValNum('dt',      0.02);
+    const gamma  = getValNum('gamma',   0.0);
+    const dkScat = getValNum('dkScat',  0.03);
+    const nAtoms = Math.max(20, Math.floor(getValNum('nAtoms', 200)));
+    const sigk   = getValNum('sigk',    0.10);
+    const G      = 2*Math.PI/a;
+    const band   = '-';
+    const model  = 'tb2';
+    const scatMode = getSel('scatMode','rta');
+    const demod  = getChk('demod');
+    const center = getChk('center');
+    const phaseConv = getSel('phaseConv','mid'); // new
+    const showEnergy = getChk('showEnergy');     // new
+    params = {a,t,Delta,E,k0,dt,gamma,dkScat,nAtoms,sigk,G,band,model,scatMode,demod,center,phaseConv,showEnergy};
+    // Toggle energy card visibility immediately on input
+    if (energyCard) energyCard.style.display = showEnergy ? '' : 'none';
+  }
+
+  function resetState(){
+    readParams();
+    state = { t:0, k:modBZ(params.k0,params.G), kappa:0, phases:null, grid:null, coeffs:null, history:null };
+  }
+
+  // =============== Bands ===============
+  function bands(p){
+    const {a,t,Delta}=p; const N=801; const kgrid=[],E1=[],E2=[];
+    for(let i=0;i<N;i++){
+      const k=-Math.PI/a+(2*Math.PI/a)*(i/(N-1)); kgrid.push(k);
+      const f=(Delta*0.5)**2+4*t*t*Math.cos(0.5*a*k)**2; const e=Math.sqrt(f); E1.push(-e); E2.push(+e);
+    }
+    return {kgrid,E1,E2};
+  }
+  function E_of_k(p,k,sgn){
+    const {a,t,Delta}=p; const f=(Delta*0.5)**2+4*t*t*Math.cos(0.5*a*k)**2; const e=Math.sqrt(f);
+    return sgn==='+'?+e:-e;
+  }
+  function dEdk_num(p,k,band){ const h=1e-3*p.G; const e1=E_of_k(p,modBZ(k+h,p.G),band); const e0=E_of_k(p,modBZ(k-h,p.G),band); return (e1-e0)/(2*h); }
+
+  // Reference energy for phase convention (display-only)
+  function energyRef(p, s){
+    if (p.phaseConv === 'mid') return 0.0;
+    if (p.phaseConv === 'bottom'){
+      // lower band minimum at k=0 for this model
+      const Emin = E_of_k(p, 0.0, p.band); // negative
+      return Emin;
+    }
+    // 'center' → subtract E(k_c)
+    return E_of_k(p, s.k, p.band);
+  }
+
+  // =============== Grids & coeffs ===============
+  function buildGrids(){
+    const p=params; const a=p.a, L=p.nAtoms*a; const Nx=2000;
+    const x=new Float64Array(Nx); for(let i=0;i<Nx;i++) x[i]=-L/2 + L*i/(Nx-1);
+    const Nk=401; const kmin=-Math.PI/a, kmax=Math.PI/a; const K=new Float64Array(Nk); for(let j=0;j<Nk;j++) K[j]=kmin+(kmax-kmin)*j/(Nk-1);
+    const coskx=new Array(Nk), sinkx=new Array(Nk);
+    for(let j=0;j<Nk;j++){
+      const kj=K[j]; const c=new Float64Array(Nx), s=new Float64Array(Nx);
+      for(let i=0;i<Nx;i++){ const ph=kj*x[i]; c[i]=Math.cos(ph); s[i]=Math.sin(ph); }
+      coskx[j]=c; sinkx[j]=s;
+    }
+    state.grid={x,K,coskx,sinkx,Nx,Nk,L,dx:(x[1]-x[0])};
+  }
+  function coeffsInit(kc){
+    const {K,Nk}=state.grid, p=params; const s2=2*p.sigk*p.sigk; const c=new Float64Array(Nk); let maxv=0;
+    for(let j=0;j<Nk;j++){ let dk=modBZ(K[j]-kc,p.G); const v=Math.exp(-(dk*dk)/s2); c[j]=v; if(v>maxv) maxv=v; }
+    let norm=0; for(let j=0;j<Nk;j++) norm+=c[j]*c[j]; norm=Math.sqrt(norm)||1; for(let j=0;j<Nk;j++) c[j]/=norm;
+    c.maxForPlot = maxv||1; return c;
+  }
+
+  // =============== Synthesis (continuous κ) ===============
+  function synthesizePsi(coeffs){
+    const {Nx,Nk,coskx,sinkx,x}=state.grid;
+    const psi_re=new Float64Array(Nx), psi_im=new Float64Array(Nx);
+    const kap = state.kappa || 0; // continuous
+    const coskap=new Float64Array(Nx), sinkap=new Float64Array(Nx);
+    for(let i=0;i<Nx;i++){ const ph = kap*x[i]; coskap[i]=Math.cos(ph); sinkap[i]=Math.sin(ph); }
+    const phases = state.phases || new Float64Array(Nk);
+    for(let j=0;j<Nk;j++){
+      const cj=coeffs[j]; if(cj===0) continue;
+      const theta = phases[j] || 0; const ct=Math.cos(theta), st=Math.sin(theta);
+      const cvec=coskx[j], svec=sinkx[j];
+      for(let i=0;i<Nx;i++){
+        const tmp_re = cvec[i]*coskap[i] - svec[i]*sinkap[i];
+        const tmp_im = svec[i]*coskap[i] + cvec[i]*sinkap[i];
+        psi_re[i] += cj * ( tmp_re*ct + tmp_im*st );
+        psi_im[i] += cj * ( tmp_im*ct - tmp_re*st );
+      }
+    }
+    const abs=new Float64Array(Nx); let maxA=0;
+    for(let i=0;i<Nx;i++){ abs[i]=Math.hypot(psi_re[i],psi_im[i]); if(abs[i]>maxA) maxA=abs[i]; }
+    maxA=maxA||1; for(let i=0;i<Nx;i++){ psi_re[i]/=maxA; psi_im[i]/=maxA; abs[i]/=maxA; }
+    let num=0, den=0; for(let i=0;i<Nx;i++){ const w=abs[i]*abs[i]; num+=x[i]*w; den+=w; } const xmean=(den>0)? num/den : 0;
+    return {re:Array.from(psi_re), im:Array.from(psi_im), abs:Array.from(abs), xmean};
+  }
+
+  // =============== Scattering ===============
+  function renormC(c){ let n=0; for(let j=0;j<c.length;j++) n+=c[j]*c[j]; n=Math.sqrt(n)||1; for(let j=0;j<c.length;j++) c[j]/=n; return c; }
+  function diffuseCoeffs(sigma){
+    if(!(sigma>0)) return;
+    const {K}=state.grid; const dkg=K[1]-K[0]; const sb=Math.max(0.5, sigma/dkg);
+    const R=Math.max(2, Math.ceil(3*sb)); const kern=new Float64Array(2*R+1); let sum=0;
+    for(let r=-R;r<=R;r++){ const w=Math.exp(-0.5*(r*r)/(sb*sb)); kern[r+R]=w; sum+=w; }
+    for(let i=0;i<kern.length;i++) kern[i]/=sum;
+    const old=state.coeffs; const N=old.length; const next=new Float64Array(N);
+    for(let j=0;j<N;j++){
+      let acc=0; for(let r=-R;r<=R;r++){ let idx=j-r; if(idx<0) idx+=N; if(idx>=N) idx-=N; acc+=kern[r+R]*old[idx]; }
+      next[j]=acc;
+    }
+    state.coeffs = renormC(next);
+    state.coeffs.maxForPlot = Math.max(...next) || 1;
+  }
+
+  // =============== Init Plots ===============
+  function initPlots(){
+    readParams(); buildGrids();
+    state.kappa = 0; state.phases=new Float64Array(state.grid.Nk);
+    state.coeffs = coeffsInit(params.k0);
+
+    // Real-space panel
+    if(realDiv){
+      const {x}=state.grid; const a=params.a; const atomsX=[]; for(let n=-params.nAtoms; n<=params.nAtoms; n++) atomsX.push(n*a);
+      const psi0=synthesizePsi(state.coeffs);
+      const kUnwrap0 = params.k0 + state.kappa;
+      const kWrap0   = state.k;
+      const omegaRef0 = energyRef(params, state); // display-only shift
+      const reToPlot0 = reWithWrappedCarrier(psi0, x, kUnwrap0, kWrap0, params.demod, omegaRef0, state.t);
+
+      const realLayout={ title:{text:'Real Space: Re ψ / |ψ|',font:{color:'#111827'}}, margin:{l:50,r:10,t:36,b:48},
+        paper_bgcolor:'#ffffff', plot_bgcolor:'#ffffff',
+        xaxis:{title:'x (units of a)',color:'#111827',mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        yaxis:{title:'Amplitude (arb.)',color:'#111827',range:[-1.4,1.4],mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        showlegend:true, legend:{orientation:'h',y:-0.2} };
+      const atomTr=[{x:atomsX, y:atomsX.map(()=>1.2), mode:'markers', marker:{symbol:'line-ns-open', size:14}, line:{color:'#64748b'}, type:'scatter', hoverinfo:'skip', name:'atoms'}];
+      const psiTr ={ x:Array.from(x,xi=>xi/a), y:reToPlot0, type:'scatter', mode:'lines', line:{width:2}, name:(params.demod?'Re ψ (envelope)':'Re ψ') };
+      const envTr ={ x:Array.from(x,xi=>xi/a), y:psi0.abs, type:'scatter', mode:'lines', line:{width:2, dash:'dot'}, name:'|ψ|' };
+      Plotly.newPlot(realDiv,[...atomTr, psiTr, envTr], realLayout, {displayModeBar:true,responsive:true});
+    }
+
+    // k-space panel
+    if(kDiv){
+      const B=bands(params); const kaxis=B.kgrid.map(k=>k*params.a);
+      const yMin0 = Math.min(Math.min(...B.E1), Math.min(...B.E2)) - 0.5; const yMax0 = Math.max(Math.max(...B.E1), Math.max(...B.E2)) + 0.5; state.kYR = {ymin:yMin0, ymax:yMax0};
+      const bandLower={x:kaxis,y:B.E1,type:'scatter',mode:'lines',name:'Band −'}; const bandUpper={x:kaxis,y:B.E2,type:'scatter',mode:'lines',name:'Band +'};
+      const {K}=state.grid; const ampPlot=Array.from(state.coeffs, v=>v/(state.coeffs.maxForPlot||1));
+      const kPacket={ x:Array.from(K,k=>k*params.a), y:ampPlot, yaxis:'y2', type:'scatter', mode:'lines', name:'|c_k|' };
+      const kLine={ x:[state.k*params.a, state.k*params.a], y:[yMin0, yMax0], mode:'lines', type:'scatter', line:{dash:'dot'}, name:'k(t)'};
+      const kLayout={ title:{text:'k-Space: E(k) and |c_k|',font:{color:'#111827'}}, margin:{l:50,r:50,t:36,b:48}, paper_bgcolor:'#ffffff', plot_bgcolor:'#ffffff', uirevision:'kplot',
+        xaxis:{title:'k (1/a)',color:'#111827',range:[-Math.PI,Math.PI],autorange:false,mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        yaxis:{title:'Energy (arb.)',color:'#111827',range:[yMin0,yMax0],autorange:false,mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        yaxis2:{title:'|c_k| (arb.)',overlaying:'y',side:'right',color:'#111827',showgrid:false,mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        legend:{orientation:'h',y:-0.18}, shapes:[] };
+
+      // velocity guides
+      const vg0=dEdk_num(params,state.k,params.band); const E0=E_of_k(params,state.k,params.band);
+      const LkSeg=0.35; const gX=[state.k*params.a-LkSeg, state.k*params.a+LkSeg]; const gY=[E0-vg0*LkSeg, E0+vg0*LkSeg];
+      const vp0=(Math.abs(state.k)>1e-9)? (E0/state.k) : 0; const pX=[state.k*params.a-LkSeg, state.k*params.a+LkSeg]; const pY=[E0-vp0*LkSeg, E0+vp0*LkSeg];
+      const groupTr={x:gX,y:gY,type:'scatter',mode:'lines',name:'Group velocity (tangent)',line:{width:2},hoverinfo:'skip'};
+      const phaseTr={x:pX,y:pY,type:'scatter',mode:'lines',name:'Phase velocity (slope E/k)',line:{width:2,dash:'dot'},hoverinfo:'skip'};
+      Plotly.newPlot(kDiv,[bandLower,bandUpper,kPacket,kLine,groupTr,phaseTr],kLayout,{displayModeBar:true,responsive:true});
+    }
+
+    // Energy vs time panel
+    state.history={ t:[], E:[], xmean:[] };
+    if(energyDiv && params.showEnergy){
+      const energyLayout={ title:{text:'Energy ⟨E⟩(t) and drift ⟨x⟩/a',font:{color:'#111827'}}, paper_bgcolor:'#ffffff', plot_bgcolor:'#ffffff', margin:{l:55,r:55,t:36,b:40},
+        xaxis:{title:'time',color:'#111827',mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        yaxis:{title:'⟨E⟩ (arb.)',color:'#111827',mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1},
+        yaxis2:{title:'⟨x⟩/a', overlaying:'y', side:'right', color:'#111827',mirror:'allticks',showline:true,ticks:'inside',tickcolor:'#111827',linewidth:1} };
+      const Etrace={x:[],y:[],type:'scatter',mode:'lines',name:'⟨E⟩(t)'}; const Xtrace={x:[],y:[],type:'scatter',mode:'lines',name:'⟨x⟩/a', yaxis:'y2'};
+      Plotly.newPlot(energyDiv, [Etrace,Xtrace], energyLayout, {displayModeBar:true, responsive:true});
+    }
+  }
+
+  // =============== Step ===============
+  function stepOnce(){
+    readParams(); const p=params, s=state; const dt=p.dt, q=-1;
+
+    // acceleration theorem — keep κ continuous
+    s.kappa = (s.kappa || 0) + q*p.E*dt; // ħ=1
+    s.k = modBZ(p.k0 + s.kappa, p.G);    // wrapped center (for plotting & remod)
+
+    // scattering
+    if(p.gamma>0){
+      if(p.scatMode==='rta'){
+        const tau = 1/Math.max(1e-9, p.gamma);
+        s.kappa += (-(s.kappa)/tau) * dt; // relax κ toward 0
+      } else if(p.scatMode==='diff'){
+        const prob = 1 - Math.exp(-p.gamma*dt);
+        if(Math.random() < prob){ diffuseCoeffs(Math.max(1e-12, p.dkScat)); }
+      }
+    }
+
+    // phase advance: use wrapped k for band energy
+    const {K,dx,x}=state.grid; if(!s.phases) s.phases=new Float64Array(K.length);
+    for(let j=0;j<K.length;j++){ const kj = modBZ(K[j] + s.kappa, p.G); s.phases[j] += E_of_k(p,kj,p.band)*dt; }
+
+    // synthesize ψ
+    const psi = synthesizePsi(s.coeffs);
+
+    // Build display real part with wrapped carrier + phase convention
+    const kUnwrap = p.k0 + s.kappa; // continuous
+    const kWrap   = s.k;            // wrapped
+    const omegaRef = energyRef(p, s);
+    const reVis   = reWithWrappedCarrier(psi, x, kUnwrap, kWrap, p.demod, omegaRef, s.t);
+
+    // envelope centering (fractional), optional
+    let psiReDisp = reVis;
+    let psiAbsDisp = psi.abs;
+    if(p.center){
+      const sfrac = psi.xmean / dx; // samples
+      psiReDisp  = shiftArrayFractional(reVis,  sfrac);
+      psiAbsDisp = shiftArrayFractional(psi.abs, sfrac);
+    }
+
+    // update real plot
+    if(realDiv){ Plotly.update(realDiv, { x:[null, Array.from(x,xi=>xi/p.a), Array.from(x,xi=>xi/p.a)], y:[null, psiReDisp, psiAbsDisp] }, {}, [0,1,2]); }
+
+    // update k plot
+    if(kDiv){
+      const B=bands(p); const ymin = state.kYR? state.kYR.ymin : Math.min(Math.min(...B.E1),Math.min(...B.E2))-0.5;
+      const ymax = state.kYR? state.kYR.ymax : Math.max(Math.max(...B.E1),Math.max(...B.E2))+0.5;
+      const vg=dEdk_num(p,s.k,p.band); const Ecur=E_of_k(p,s.k,p.band);
+      const Kshift = Array.from(K, kv => modBZ(kv + s.kappa, p.G) * p.a);
+      const ampPlot = Array.from(s.coeffs, v => v/(s.coeffs.maxForPlot||1));
+      const LkSeg=0.35; const gX=[s.k*p.a-LkSeg, s.k*p.a+LkSeg]; const gY=[Ecur-vg*LkSeg, Ecur+vg*LkSeg];
+      const vp=(Math.abs(s.k)>1e-9)? (Ecur/s.k) : 0; const pX=[s.k*p.a-LkSeg, s.k*p.a+LkSeg]; const pY=[Ecur-vp*LkSeg, Ecur+vp*LkSeg];
+      Plotly.update(kDiv, { x:[B.kgrid.map(k=>k*p.a), B.kgrid.map(k=>k*p.a), Kshift, [s.k*p.a, s.k*p.a], gX, pX],
+                            y:[B.E1,B.E2,ampPlot,[ymin,ymax], gY, pY] });
+    }
+
+    // energy history
+    if (energyDiv && p.showEnergy){
+      let Eexp=0; for(let j=0;j<K.length;j++){ const w=state.coeffs[j]*state.coeffs[j]; const kj = modBZ(K[j] + s.kappa, p.G); Eexp += w * E_of_k(p,kj,p.band); }
+      if(!s.history) s.history={t:[],E:[],xmean:[]}; s.history.t.push(s.t); s.history.E.push(Eexp); s.history.xmean.push(psi.xmean/p.a);
+      const M=2500; if(s.history.t.length>M){ s.history.t.shift(); s.history.E.shift(); s.history.xmean.shift(); }
+      Plotly.update(energyDiv, { x:[s.history.t,s.history.t], y:[s.history.E,s.history.xmean] });
+    }
+
+    s.t += dt;
+  }
+
+  // =============== Loop & events ===============
+  function play(){ if(!animHandle) animHandle=requestAnimationFrame(loop); }
+  function pause(){ if(animHandle){ cancelAnimationFrame(animHandle); animHandle=null; } }
+  function loop(){ stepOnce(); animHandle=requestAnimationFrame(loop); }
+
+  playBtn.onclick=play;
+  pauseBtn.onclick=pause;
+  stepBtn.onclick=()=>{ pause(); stepOnce(); };
+  resetBtn.onclick=()=>{ pause(); resetState(); buildGrids(); initPlots(); };
+
+  ['a','t','Efield','k0','sigk','dt','gamma','dkScat','nAtoms','scatMode','demod','center','phaseConv','showEnergy']
+    .forEach(id=>{ const n=byId(id); if(n){ n.addEventListener('input', readParams); }});
+
+  // =============== Boot ===============
+  readParams(); resetState(); buildGrids(); initPlots();
+})();
+</script>
+</body>
+</html>
