@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BCS/Dynes DOS + Fractions + BCS Wavefunction (v4 white)</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { margin:0; font-family: Arial, Helvetica, sans-serif; color:#111; background:white; }
+    .wrap { max-width:1200px; margin:24px auto; padding:16px; }
+    h1 { font-size:22px; margin:0 0 12px; color:#000; }
+    .grid { display:grid; grid-template-columns:320px 1fr; gap:16px; align-items:start; }
+    .rightgrid { display:grid; grid-template-columns:1fr 360px; gap:16px; align-items:stretch; }
+    .row { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; margin:10px 0; }
+    .panel { background:#fafafa; border:1px solid #ccc; border-radius:10px; padding:14px; box-shadow:0 2px 5px rgba(0,0,0,0.05); }
+    label { font-size:13px; color:#333; }
+    .small { font-size:12px; color:#555; }
+    input[type="range"] { width:100%; }
+    .value { font-variant-numeric: tabular-nums; font-weight:600; color:#000; }
+    .inline { display:inline-flex; align-items:center; gap:8px; }
+    .btn { cursor:pointer; font-size:12px; border-radius:8px; border:1px solid #ccc; padding:6px 10px; background:#f3f3f3; color:#000; }
+    .btn:hover { background:#e9e9e9; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>BCS/Dynes DOS vs Temperature + Fractions + BCS Wavefunction (white theme)</h1>
+    <div class="grid">
+      <!-- Controls -->
+      <div class="panel">
+        <div class="row"><label for="Tc">T<sub>c</sub> (K)</label><input id="Tc" type="number" step="0.1" value="10" min="0.1" style="width:90px"></div>
+        <div class="row"><label for="T">Temperature T (K)</label><div id="T_val" class="value">2.00</div></div>
+        <input id="T" type="range" min="0" max="10" step="0.05" value="2" />
+        <div class="small">Slide T to update all plots.</div>
+        <hr style="border-color:#ccc; opacity:.5; margin:12px 0" />
+        <div class="row"><label for="Gamma">Dynes Γ (meV)</label><input id="Gamma" type="number" step="0.01" value="0.08" min="0" style="width:90px"></div>
+        <div class="row"><label for="emin">Energy window ± (meV)</label><input id="emin" type="number" step="0.5" value="5" min="1" style="width:90px"></div>
+        <div class="row"><label for="npts">Resolution (points)</label><input id="npts" type="number" step="100" value="2001" min="801" max="8001" style="width:90px"></div>
+        <div class="row"><label>Background</label><div class="inline small"><input type="checkbox" id="useSlope"><label for="useSlope">Sloped N(E)</label></div></div>
+        <div class="row" id="alphaRow" style="display:none"><label for="alpha">Slope α (1/meV)</label><input id="alpha" type="number" step="0.005" value="0.02" min="-0.2" max="0.2" style="width:90px"></div>
+        <div class="row"><label>Thermal smearing</label><div class="inline small"><input type="checkbox" id="smear"><label for="smear">Convolve with −∂f/∂E</label></div></div>
+        <div class="row"><label for="norm">Normalization</label><select id="norm" style="width:120px"><option value="N0" selected>N(E)/N<sub>0</sub></option><option value="none">No normalization</option></select></div>
+        <div class="row"><label for="sfModel">n<sub>s</sub> model</label><select id="sfModel" style="width:210px"><option value="bcs" selected>BCS integral (clean s-wave)</option><option value="twofluid">Two-fluid: 1−(T/Tc)^4</option></select></div>
+        <div class="row"><button class="btn" id="reset">Reset</button><button class="btn" id="replot">Replot</button></div>
+        <div class="small" id="deltaOut">Δ(T)=—</div>
+        <div class="small">Weak-coupling: Δ<sub>0</sub>≈1.764 k<sub>B</sub>T<sub>c</sub>; Δ(T)=Δ<sub>0</sub> tanh[1.74√(T<sub>c</sub>/T−1)].</div>
+      </div>
+
+      <!-- Plots: DOS (left) + bars (right) -->
+      <div class="rightgrid">
+        <div class="panel"><div id="plot" style="height:560px"></div></div>
+        <div class="panel">
+          <div id="bars" style="height:560px"></div>
+          <div class="small">Bars show global fractions: <b>superfluid</b> n<sub>s</sub>(T) and <b>normal</b> n<sub>n</sub>=1−n<sub>s</sub>. (Not k-resolved |u<sub>k</sub>|², |v<sub>k</sub>|².)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wavefunction panel below -->
+    <div class="panel" style="margin-top:16px">
+      <div class="inline small" style="gap:12px">
+        <span>BCS wavefunction views:</span>
+        <input type="checkbox" id="show_u2" checked><label for="show_u2">|u<sub>k</sub>|²</label>
+        <input type="checkbox" id="show_v2" checked><label for="show_v2">|v<sub>k</sub>|²</label>
+        <input type="checkbox" id="show_nk"><label for="show_nk">n<sub>k</sub>(T)</label>
+        <input type="checkbox" id="show_Fk"><label for="show_Fk">|F<sub>k</sub>|</label>
+      </div>
+      <div id="coherence" style="height:360px"></div>
+      <div class="small">Here ξ ≡ ε<sub>k</sub> − μ (x-axis), E<sub>k</sub>=√(ξ²+Δ²). n<sub>k</sub>(T)=v²+(u²−v²)f(E<sub>k</sub>,T); F<sub>k</sub>=u v (1−2f).</div>
+    </div>
+  </div>
+
+  <script>
+  const kB=0.08617333262;
+  function c(re,im){return{re,im}};function cdiv(a,b){const d=b.re*b.re+b.im*b.im;return{re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d}};function csqrt(a){const r=Math.hypot(a.re,a.im);const u=Math.sqrt((r+a.re)/2);const v=Math.sqrt(Math.max(0,(r-a.re)/2));return{re:u,im:(a.im>=0?1:-1)*v}};
+  function Delta(Tc,T){if(T<=0)return 1.764*kB*Tc;if(T>=Tc)return 0;const D0=1.764*kB*Tc;return D0*Math.tanh(1.74*Math.sqrt(Tc/T-1))}
+  function Ns(E,D,G){const z=c(E,-G);const z2={re:z.re*z.re-z.im*z.im,im:2*z.re*z.im};const d=csqrt({re:z2.re-D*D,im:z2.im});const q=cdiv(z,d);return Math.abs(q.re)}
+  function dfdE(E,T){const b=1/(kB*T);const x=0.5*b*E;const s=1/Math.cosh(x);return 0.25*b*s*s}
+  function fermi(E,T){if(T<=0)return E>0?0:1;const b=1/(kB*T);const x=b*E;if(x>40)return 0;if(x<-40)return 1;return 1/(1+Math.exp(x))}
+  function bcs(D,xi){const Ek=Math.sqrt(xi*xi+D*D);const u2=0.5*(1+(Ek?xi/Ek:0));const v2=1-u2;const uv=(D?D/(2*Ek):0);return{Ek,u2,v2,uv}}
+  function superfluidBCS(D,T){if(T<=0)return 1;if(D<=0)return 0;const Emax=Math.max(20*D,15);const N=4000;const dE=(Emax-D)/N;let s=0;for(let i=0;i<N;i++){const E=D+(i+0.5)*dE;const k=dfdE(E,T);const den=Math.sqrt(Math.max(1e-18,E*E-D*D));s+=k*(E/den)}return Math.min(1,Math.max(0,1-2*s*dE))}
+  function superfluidTF(Tc,T){const x=Math.min(1,Math.max(0,T/Tc));return 1-Math.pow(x,4)}
+
+  function compute(){
+    const Tc=parseFloat(Tc_in.value)||10;const T=parseFloat(T_in.value)||2;const G=parseFloat(Gamma_in.value)||0.08;const Emax=parseFloat(Ewin_in.value)||5;const npts=parseInt(npts_in.value)||2001;
+    const useSlope=slope_chk.checked;const a=parseFloat(alpha_in.value)||0;const smear=smear_chk.checked;const norm=norm_sel.value==='N0';
+    const E=new Float64Array(npts);const Emin=-Emax;const dE=2*Emax/(npts-1);for(let i=0;i<npts;i++)E[i]=Emin+i*dE;const D=Delta(Tc,T);
+    const Ns_arr=new Float64Array(npts);for(let i=0;i<npts;i++){const base=Ns(E[i],D,G);const env=useSlope?(1+a*E[i]):1;Ns_arr[i]=env*base;}
+    const trace={x:Array.from(E),y:Array.from(Ns_arr,v=>norm?v:v),type:'scatter',mode:'lines',name:'N(E)'};
+    const baseLine={x:[Emin,Emax],y:[1,1],mode:'lines',type:'scatter',name:'Normal',line:{dash:'dash'},hoverinfo:'skip'};
+    Plotly.newPlot('plot',[trace,baseLine],{title:`DOS — T=${T.toFixed(2)} K`,xaxis:{title:'Energy (meV)'},yaxis:{title:norm?'N/N₀':'DOS',rangemode:'tozero'},paper_bgcolor:'white',plot_bgcolor:'white'}, {displaylogo:false,responsive:true});
+
+    const ns=(sf_sel.value==='bcs')?superfluidBCS(D,T):superfluidTF(Tc,T);const nn=1-ns;
+    Plotly.newPlot('bars',[{x:['state'],y:[ns],type:'bar',name:'n_s'},{x:['state'],y:[nn],type:'bar',name:'n_n'}],{title:`Fractions at T=${T.toFixed(2)} K`,xaxis:{showticklabels:false},yaxis:{range:[0,1],title:'Fraction'},barmode:'stack',paper_bgcolor:'white',plot_bgcolor:'white'}, {displaylogo:false,responsive:true});
+
+    const xiMax=Math.max(D>0?6*D:6,Emax);const Nx=801;const dx=2*xiMax/(Nx-1);
+    const cu=show_u2.checked;const cv=show_v2.checked;const cn=show_nk.checked;const cf=show_Fk.checked;
+    const tr_u2={x:[],y:[],type:'scatter',mode:'lines',name:'|u_k|²'};const tr_v2={x:[],y:[],type:'scatter',mode:'lines',name:'|v_k|²'};const tr_nk={x:[],y:[],type:'scatter',mode:'lines',name:'n_k(T)'};const tr_Fk={x:[],y:[],type:'scatter',mode:'lines',name:'|F_k|'};
+    for(let i=0;i<Nx;i++){const xi=-xiMax+i*dx;const {Ek,u2,v2,uv}=bcs(D,xi);const f=fermi(Ek,T);const nk=v2+(u2-v2)*f;const Fk=Math.abs(uv*(1-2*f));
+      if(cu){tr_u2.x.push(xi);tr_u2.y.push(u2);}if(cv){tr_v2.x.push(xi);tr_v2.y.push(v2);}if(cn){tr_nk.x.push(xi);tr_nk.y.push(nk);}if(cf){tr_Fk.x.push(xi);tr_Fk.y.push(Fk);}}
+    const tr=[];if(tr_u2.x.length)tr.push(tr_u2);if(tr_v2.x.length)tr.push(tr_v2);if(tr_nk.x.length)tr.push(tr_nk);if(tr_Fk.x.length)tr.push(tr_Fk);if(!tr.length){tr.push(tr_u2);tr.push(tr_v2)}
+    Plotly.newPlot('coherence',tr,{title:'BCS wavefunction (ξ ≡ ε_k−μ)',xaxis:{title:'ξ (meV)'},yaxis:{title:'Value',range:[0,1]},paper_bgcolor:'white',plot_bgcolor:'white'}, {displaylogo:false,responsive:true});
+    deltaOut.innerHTML=`Δ(T)=${D>0?D.toFixed(3)+' meV':'0 (normal)'}`;
+  }
+
+  window.addEventListener('DOMContentLoaded',()=>{
+    Tc_in=document.getElementById('Tc');T_in=document.getElementById('T');T_val=document.getElementById('T_val');Gamma_in=document.getElementById('Gamma');Ewin_in=document.getElementById('emin');npts_in=document.getElementById('npts');slope_chk=document.getElementById('useSlope');alpha_in=document.getElementById('alpha');smear_chk=document.getElementById('smear');norm_sel=document.getElementById('norm');sf_sel=document.getElementById('sfModel');deltaOut=document.getElementById('deltaOut');show_u2=document.getElementById('show_u2');show_v2=document.getElementById('show_v2');show_nk=document.getElementById('show_nk');show_Fk=document.getElementById('show_Fk');
+    T_in.addEventListener('input',()=>{T_val.textContent=Number(T_in.value).toFixed(2);compute()});
+    ['Tc','Gamma','emin','npts','alpha','norm','sfModel'].forEach(id=>document.getElementById(id).addEventListener('change',compute));
+    ['show_u2','show_v2','show_nk','show_Fk'].forEach(id=>document.getElementById(id).addEventListener('change',compute));
+    compute();
+  });
+  </script>
+</body>
+</html>
